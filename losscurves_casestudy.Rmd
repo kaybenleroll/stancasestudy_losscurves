@@ -1,0 +1,255 @@
+---
+title: "Modelling Loss Curves in Insurance with RStan"
+author: "Mick Cooney"
+date: "29 March 2016"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+    fig_caption: yes
+    theme: cerulean
+    css: assets/styles.css
+  pdf_document: default
+---
+
+<!--
+(Title:) Modelling Loss Curves in Insurance with RStan
+
+Author: Mick Cooney
+
+Date: 2016
+
+Abstract: This case study shows a way to model the growth of losses using a hierarchical approach
+
+Keywords: loss curves, insurance,
+
+-->
+
+```{r knit_opts, include = FALSE}
+knitr::opts_chunk$set(tidy = FALSE, cache = FALSE)
+
+library(data.table)
+library(ggplot2)
+library(rstan)
+
+options(width = 80)
+```
+
+
+
+---
+
+# Model
+
+## Overview
+
+We will work with two different functional forms for the growth
+behaviour of the loss curves: a 'Weibull' model and a 'loglogistic'
+model:
+
+$$
+g(t \, ; \; \theta, \omega) = \frac{t^\omega}{t^\omega + \theta^\omega}
+$$
+
+$$
+g(t \, ; \; \theta, \omega) = 1 - \exp\left(-\left(\frac{t}{\theta}\right)^\omega\right)
+$$
+
+
+# Load Data
+
+We will first look at the car insurance loss data from casact.org
+
+```{r load_data, include = TRUE, results = TRUE}
+### File was downloaded from http://www.casact.org/research/reserve_data/ppauto_pos.csv
+
+ppauto_dt <- fread("data/ppauto_pos.csv")
+
+head(ppauto_dt)
+```
+
+In terms of modeling the work, we want to ensure the data we work with is a snapshot
+in time.
+
+```{r create_data_snapshot, include = TRUE, results = TRUE}
+use_grcode <- c(43,388,620)[1]
+
+snapshot_dt <- ppauto_dt[GRCODE == use_grcode
+                       ][DevelopmentYear < 1998
+                       ][, .(accyear    = AccidentYear
+                            ,devlag     = DevelopmentLag
+                            ,premium    = EarnedPremDIR_B
+                            ,cumloss    = CumPaidLoss_B
+                            ,loss_ratio = CumPaidLoss_B / EarnedPremDIR_B)]
+
+
+print(dcast(snapshot_dt, accyear + premium ~ devlag, value.var = 'loss_ratio'),digits=3)
+```
+
+We look at the chain ladder of the data, rather than looking at the loss ratios we just
+look at the dollar amounts of the losses.
+
+```{r create_chainladder, include = TRUE, results = TRUE}
+print(dcast(snapshot_dt, accyear + premium ~ devlag, value.var = 'cumloss'),digits=3)
+```
+
+
+## Quick Data Exploration
+
+We are working with the loss ratio, so we recreate the chain ladder format but look at loss
+ratios instead of dollar losses.
+
+```{r loss_curve_plot, include = TRUE, results = TRUE, fig.width = 10}
+ggplot() +
+  geom_line(aes(x = devlag, y = loss_ratio, colour = as.character(accyear))
+           ,data = snapshot_dt
+           ,size = 0.3) +
+  xlab('Development Time') +
+  ylab('Loss Ratio') +
+  guides(colour = guide_legend(title = 'Cohort Year')) +
+  expand_limits(y = 0)
+```
+
+# Stan Model
+
+## Configure Data
+
+We want to only use the data at a given snapshot, so we choose all data current
+to 1998. Thus, we have 10 years of development for our first 1988 cohort, and one less
+for each subsequent year. Our final cohort for 1997 has only a single year of development
+
+```{r stan_data, include = TRUE, results = TRUE, cache = FALSE}
+cohort_dt <- unique(snapshot_dt[, .(accyear, premium)])
+cohort_dt[, cohort_id := .I]
+
+usedata_dt <- snapshot_dt
+
+lst_standata <- list(growthmodel_id = 1   # Use weibull rather than loglogistic
+                    ,n_data         = usedata_dt[, .N]
+                    ,n_time         = usedata_dt[, length(unique(devlag))]
+                    ,n_cohort       = cohort_dt[, .N]
+                    ,cohort_id      = match(usedata_dt$accyear, cohort_dt$accyear)
+                    ,cohort_maxtime = usedata_dt[, .(maxtime = max(devlag)), by = accyear][order(accyear)]$maxtime
+                    ,t_value        = usedata_dt[, sort(unique(devlag))]
+                    ,t_idx          = usedata_dt[, match(devlag, sort(unique(devlag)))]
+                    ,premium        = cohort_dt$premium
+                    ,loss           = usedata_dt$cumloss
+                    )
+```
+
+The full Stan file is shown below:
+
+```{r model1_stanfile, comment="", echo=FALSE}
+cat(readLines("losscurves_single.stan"), sep = "\n")
+```
+
+Need to discuss a number of issues with the above file:
+
+* Use of functions to select between the Weibull and Loglogistic
+* Use of lognormal to ensure positive values on LR and stddevs
+* Use of normal, not lognormal, for mu_LR as it feeds into a lognormal
+* Use of generated quantities
+
+
+```{r model1_stanfit, results='hide', cache=FALSE, warning=TRUE, message=FALSE}
+lc_1_stanfit <- stan(file   = 'losscurves_single.stan'
+                    ,data   = lst_standata
+                    ,iter   = 500
+                    ,chains = 16
+                    )
+```
+
+It is always worth checking convergence of the model by checking the $\hat{R}$ and
+ensuring it is less than about 1.1
+
+```{r model1_convergenceplot, results='hide', width=10}
+# Plot of convergence statistics
+lc_1_draws   <- extract(lc_1_stanfit, permuted = FALSE, inc_warmup = TRUE)
+lc_1_monitor <- as.data.frame(monitor(lc_1_draws, print = FALSE))
+lc_1_monitor$Parameter <- as.factor(gsub("\\[.*]", "", rownames(lc_1_monitor)))
+
+ggplot(lc_1_monitor) +
+    aes(x = Parameter, y = Rhat, color = Parameter) +
+    geom_jitter(height = 0, width = 0.5, show.legend = FALSE) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+    ylab(expression(hat(italic(R))))
+```
+
+```{r model1_useparams}
+param_root <- c("omega", "theta", "LR", "gf", "loss_sd")
+
+use_vars <- unlist(lapply(param_root
+    ,function(iterstr) rownames(lc_1_monitor)[grep(iterstr, rownames(lc_1_monitor))]))
+
+```
+
+Check the traces:
+
+```{r model1_traceplot1}
+rstan::traceplot(lc_1_stanfit, pars = c("omega","theta","LR")) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+```
+
+```{r model1_traceplot2}
+rstan::traceplot(lc_1_stanfit, pars = c("gf","loss_sd")) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+```
+
+Now we check the 90\% credibility intervals of the parameters
+
+```{r model1_paramplot, width=10}
+plotdata_dt <- lc_1_monitor[use_vars, c('mean', '2.5%', '50%', '97.5%')]
+
+setDT(plotdata_dt)
+plotdata_dt[, variable := factor(use_vars, levels = use_vars)]
+
+ggplot(plotdata_dt) +
+  geom_point(aes(x = variable, y = mean)) +
+  geom_errorbar(aes(x = variable, y = mean, ymin = `2.5%`, ymax = `97.5%`), width = 0) +
+  expand_limits(y = 0) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  xlab("Parameter") +
+  ylab("Value")
+```
+
+## SolvencyII and the 99.5 Percentile
+
+```{r model1_dosolv2, echo=FALSE, results='hide', cache=FALSE, warning=TRUE, message=FALSE}
+losssample_dt <- melt(extract(lc_1_stanfit)$loss_prediction);
+setDT(losssample_dt)
+
+newdata_dt <- losssample_dt[,
+                            .SD[Var3 == (12 - Var2)
+                               ,.(cohort_id = Var2
+                                 ,value = quantile(value, 0.995))]
+                           ,by = Var2]
+
+newdata_dt[, accyear    := cohort_dt$accyear[cohort_id]]
+newdata_dt[, devlag     := lst_standata$cohort_maxtime[newdata_dt$cohort_id] + 1]
+newdata_dt[, premium    := cohort_dt$premium[cohort_id]]
+newdata_dt[, cumloss    := value]
+newdata_dt[, loss_ratio := value / premium]
+
+rerun_dt <- rbind(snapshot_dt, newdata_dt[, .(accyear, devlag, premium, cumloss, loss_ratio)])
+rerun_dt <- rerun_dt[order(accyear,devlag)]
+
+usedata_dt <- rerun_dt
+
+lst_solv2_standata <- list(growthmodel_id = 1   # Use weibull rather than loglogistic
+                          ,n_data         = usedata_dt[, .N]
+                          ,n_time         = usedata_dt[, length(unique(devlag))]
+                          ,n_cohort       = cohort_dt[, .N]
+                          ,cohort_id      = match(usedata_dt$accyear, cohort_dt$accyear)
+                          ,cohort_maxtime = usedata_dt[, .(maxtime = max(devlag)), by = accyear][order(accyear)]$maxtime
+                          ,t_value        = usedata_dt[, sort(unique(devlag))]
+                          ,t_idx          = usedata_dt[, match(devlag, sort(unique(devlag)))]
+                          ,premium        = cohort_dt$premium
+                          ,loss           = usedata_dt$cumloss
+                           )
+
+lc_1_solv2_stanfit <- stan(file   = 'losscurves_single.stan'
+                          ,data   = lst_solv2_standata
+                          ,iter   = 500
+                          ,chains = 16
+                           )
+```

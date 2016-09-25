@@ -1,0 +1,14 @@
+## R related ...........................
+.RData
+.Rhistory
+
+
+## LaTeX files .........................
+*.log
+*.aux
+*.nav
+*.out
+*.snm
+*.tex
+*.toc
+*.vrb
