@@ -37,6 +37,12 @@ library(dtplyr)
 library(rstan)
 
 options(width = 80L)
+
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+
+# Utility function to help organise the hierarchy
+get_character_index <- function(x) match(x, sort(unique(x)))
 ```
 
 
@@ -44,6 +50,8 @@ options(width = 80L)
 ---
 
 # Model
+
+Loss curves are a standard actuarial technique for helping insurance companies assess the amount of reserve capital they need to keep on hand to cover claims from a line of business. The `ChainLadder` package is often the first port of call for this type of work.
 
 ## Overview
 
@@ -75,7 +83,7 @@ head(ppauto_dt)
 ```
 
 In terms of modeling the work, we want to ensure the data we work with is a snapshot
-in time.
+in time. We 
 
 ```{r create_data_snapshot, echo=TRUE}
 use_grcode <- c(43,388,620)[1]
@@ -118,13 +126,13 @@ ratios instead of dollar losses.
 
 ```{r loss_curve_plot, echo=TRUE}
 ggplot() +
-  geom_line(aes(x = dev_lag, y = loss_ratio, colour = as.character(acc_year))
-           ,data = snapshot_dt
-           ,size = 0.3) +
-  xlab('Development Time') +
-  ylab('Loss Ratio') +
-  guides(colour = guide_legend(title = 'Cohort Year')) +
-  expand_limits(y = 0)
+    geom_line(aes(x = dev_lag, y = loss_ratio, colour = as.character(acc_year))
+             ,data = snapshot_dt
+             ,size = 0.3) +
+    expand_limits(y = 0) +
+    xlab('Development Time') +
+    ylab('Loss Ratio') +
+    guides(colour = guide_legend(title = 'Cohort Year'))
 ```
 
 # Stan Model
@@ -136,22 +144,35 @@ to 1998. Thus, we have 10 years of development for our first 1988 cohort, and on
 for each subsequent year. Our final cohort for 1997 has only a single year of development
 
 ```{r stan_data, echo=TRUE}
-cohort_dt <- unique(snapshot_dt[, .(acc_year, premium)])
-cohort_dt[, cohort_id := .I]
+cohort_dt <- snapshot_dt %>%
+    select(acc_year, premium) %>%
+    unique() %>%
+    mutate(cohort_id = 1:n())
 
 usedata_dt <- snapshot_dt
 
-stan_data_lst <- list(growthmodel_id = 1   # Use weibull rather than loglogistic
-                     ,n_data         = usedata_dt[, .N]
-                     ,n_time         = usedata_dt[, length(unique(dev_lag))]
-                     ,n_cohort       = cohort_dt[, .N]
-                     ,cohort_id      = match(usedata_dt$acc_year, cohort_dt$acc_year)
-                     ,cohort_maxtime = usedata_dt[, .(maxtime = max(dev_lag)), by = acc_year][order(acc_year)]$maxtime
-                     ,t_value        = usedata_dt[, sort(unique(dev_lag))]
-                     ,t_idx          = usedata_dt[, match(dev_lag, sort(unique(dev_lag)))]
-                     ,premium        = cohort_dt$premium
-                     ,loss           = usedata_dt$cum_loss
-                     )
+cohort_maxtime <- usedata_dt %>%
+    group_by(acc_year) %>%
+    summarise(maxtime = max(dev_lag)) %>%
+    arrange(acc_year) %>% 
+    .[[2]]
+
+cohort_premium <- usedata_dt %>%
+    group_by(acc_year) %>%
+    summarise(premium = unique(premium)) %>%
+    .[[2]]
+    
+standata_lst <- list(growthmodel_id = 1   # Use weibull rather than loglogistic
+                    ,n_data         = usedata_dt %>% nrow
+                    ,n_time         = usedata_dt %>% select(dev_lag)  %>% unique %>% nrow
+                    ,n_cohort       = usedata_dt %>% select(acc_year) %>% unique %>% nrow
+                    ,cohort_id      = get_character_index(usedata_dt$acc_year)
+                    ,cohort_maxtime = cohort_maxtime
+                    ,t_value        = usedata_dt %>% select(dev_lag) %>% arrange(dev_lag) %>% unique %>% .[[1]]
+                    ,t_idx          = get_character_index(usedata_dt$dev_lag)
+                    ,premium        = cohort_premium
+                    ,loss           = usedata_dt$cum_loss
+                    )
 ```
 
 The full Stan file is shown below:
@@ -170,7 +191,7 @@ Need to discuss a number of issues with the above file:
 
 ```{r model1_stanfit, results='hide', cache=FALSE, warning=TRUE, message=FALSE}
 lc_1_stanfit <- stan(file   = 'losscurves_single.stan'
-                    ,data   = stan_data_lst
+                    ,data   = standata_lst
                     ,iter   = 500
                     ,chains = 8
                     )
@@ -217,19 +238,18 @@ rstan::traceplot(lc_1_stanfit, pars = c("gf","loss_sd")) +
 Now we check the 90\% credibility intervals of the parameters
 
 ```{r model1_paramplot, echo=TRUE}
-plotdata_dt <- lc_1_monitor[use_vars, c('mean', '2.5%', '50%', '97.5%')]
-
-setDT(plotdata_dt)
-plotdata_dt[, variable := factor(use_vars, levels = use_vars)]
+plotdata_dt <- lc_1_monitor[use_vars, c('mean', '2.5%', '50%', '97.5%')] %>%
+    mutate(variable = factor(use_vars, levels = use_vars))
 
 ggplot(plotdata_dt) +
-  geom_point(aes(x = variable, y = mean)) +
-  geom_errorbar(aes(x = variable, y = mean, ymin = `2.5%`, ymax = `97.5%`), width = 0) +
-  expand_limits(y = 0) +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-  xlab("Parameter") +
-  ylab("Value")
+    geom_point(aes(x = variable, y = mean)) +
+    geom_errorbar(aes(x = variable, y = mean, ymin = `2.5%`, ymax = `97.5%`), width = 0) +
+    expand_limits(y = 0) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+    xlab("Parameter") +
+    ylab("Value")
 ```
+
 
 ## SolvencyII and the 99.5 Percentile
 
@@ -272,3 +292,12 @@ lc_1_solv2_stanfit <- stan(file   = 'losscurves_single.stan'
                           ,chains = 16
                            )
 ```
+
+
+# References
+
+* Morris, J. (2016)  Hierarchical Compartmental Models for Loss Reserving
+  _Casualty Actuarial Society E-Forum, Summer 2016_ [ [pdf]
+  (http://www.casact.org/pubs/forum/16sforum/Morris.pdf) ]
+
+
