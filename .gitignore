@@ -3,12 +3,5 @@
 .Rhistory
 
 
-## LaTeX files .........................
-*.log
-*.aux
-*.nav
-*.out
-*.snm
-*.tex
-*.toc
-*.vrb
+*_cache/
+*_files/
