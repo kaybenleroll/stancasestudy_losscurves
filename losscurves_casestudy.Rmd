@@ -36,10 +36,17 @@ library(dtplyr)
 
 library(rstan)
 
+library(cowplot)
+
+
 options(width = 80L)
 
-rstan_options(auto_write = TRUE)
-options(mc.cores = parallel::detectCores())
+#rstan_options(auto_write = TRUE)
+#options(mc.cores = parallel::detectCores())
+theme_set(theme_grey())
+
+
+
 
 # Utility function to help organise the hierarchy
 get_character_index <- function(x) match(x, sort(unique(x)))
@@ -68,7 +75,7 @@ the triangle can be used to predict values in the unknown lower
 triangle.
 
 The `ChainLadder` package provides functionality to generate and use
-these loss triangle.
+these loss triangles.
 
 In this case study, we take a related but different approach: we model
 the growth of the losses in each accounting period as an increasing
@@ -101,7 +108,9 @@ We will first look at the car insurance loss data from casact.org
 ```{r load_data, echo=TRUE}
 ### File was downloaded from http://www.casact.org/research/reserve_data/ppauto_pos.csv
 
-ppauto_dt <- fread("data/ppauto_pos.csv")
+ppauto_dt <- read_csv("data/ppauto_pos.csv", progress = FALSE)
+
+setDT(ppauto_dt)
 
 setnames(ppauto_dt, tolower(names(ppauto_dt)))
 
@@ -109,23 +118,33 @@ head(ppauto_dt)
 ```
 
 In terms of modeling the work, we want to ensure the data we work with
-is a snapshot in time. We
+is a snapshot in time. To ensure this, we filter out all data
+available after 1997 and use the remaining data as our dataset.
+
+Once we have created fits and made predictions, we use the later data
+as a way to validate the model.
 
 ```{r create_data_snapshot, echo=TRUE}
 use_grcode <- c(43,353,388,620)
 
-carrier_snapshot_dt <- ppauto_dt %>%
-    filter(grcode %in% use_grcode
-          ,developmentyear < 1998) %>%
-    mutate(acc_year   = accidentyear
+carrier_full_dt <- ppauto_dt %>%
+    mutate(acc_year   = as.character(accidentyear)
+          ,dev_year   = developmentyear
           ,dev_lag    = developmentlag
           ,premium    = earnedpremdir_b
           ,cum_loss   = cumpaidloss_b
           ,loss_ratio = cum_loss / premium) %>%
-    select(grcode, acc_year, dev_lag, premium, cum_loss, loss_ratio)
+    select(grcode, acc_year, dev_year, dev_lag, premium, cum_loss, loss_ratio)
+
+carrier_snapshot_dt <- carrier_full_dt %>%
+    filter(grcode %in% use_grcode
+          ,dev_year < 1998)
+
 ```
 
-We are looking at four insurers with the GRCODEs above. Before we proceed with any analysis, we first plot the data, grouping the loss curves by accounting year and faceting by carrier.
+We are looking at four insurers with the GRCODEs above. Before we
+proceed with any analysis, we first plot the data, grouping the loss
+curves by accounting year and faceting by carrier.
 
 ```{r plot_insurer_curves, echo=TRUE}
 ggplot(carrier_snapshot_dt) +
@@ -135,7 +154,8 @@ ggplot(carrier_snapshot_dt) +
     facet_wrap(~grcode) +
     xlab('Development Time') +
     ylab('Loss Ratio') +
-    ggtitle('Snapshot of Loss Curves for 10 Years of\nPrivate Passenger Auto Insurance for Single Organisation') +
+    ggtitle('Snapshot of Loss Curves for 10 Years of Loss Development'
+           ,subtitle = 'Private Passenger Auto Insurance for Single Organisation') +
     guides(colour = guide_legend(title = 'Cohort Year'))
 ```
 
@@ -169,9 +189,9 @@ We are working with the loss ratio, so we recreate the chain ladder
 format but look at loss ratios instead of dollar losses.
 
 ```{r loss_curve_plot, echo=TRUE}
-ggplot() +
-    geom_line(aes(x = dev_lag, y = loss_ratio, colour = as.character(acc_year))
-             ,data = snapshot_dt
+ggplot(snapshot_dt) +
+    geom_line(aes(x = dev_lag, y = loss_ratio, colour = acc_year)
+             ,data = plot_dt
              ,size = 0.3) +
     expand_limits(y = 0) +
     xlab('Development Time') +
@@ -325,7 +345,10 @@ ggplot(plotdata_dt) +
     ylab("Value")
 ```
 
-Now that we have our fit we can start looking at some plots for it. First we look at some very simple sanity-check plots. We look at the full development of an accounting year and see how our fit is doing at tracking that.
+Now that we have our fit we can start looking at some plots for
+it. First we look at some very simple sanity-check plots. We look at
+the full development of an accounting year and see how our fit is
+doing at tracking that.
 
 ```{r sanity_check_plot_1988, echo=TRUE}
 fitted_curves_tbl <- extract(lc_1_stanfit)$loss_sample[,1,] %>%
@@ -346,7 +369,8 @@ ggplot(snapshot_dt %>% filter(acc_year == 1988)) +
     ylab("Loss")
 ```
 
-Seems to be doing a reasonable job. Now we use it to predict forward. We start with 1993, where we have development of five years.
+Seems to be doing a reasonable job. Now we use it to predict
+forward. We start with 1993, where we have development of five years.
 
 ```{r prediction_plot_1993, echo=TRUE}
 predict_cone_tbl <- extract(lc_1_stanfit)$loss_prediction[,6,] %>%
@@ -355,11 +379,11 @@ predict_cone_tbl <- extract(lc_1_stanfit)$loss_prediction[,6,] %>%
     gather("timelbl", "value", -iter) %>%
     mutate(time = gsub("V", "", timelbl) %>% as.numeric())
 
-plot_predict <- ggplot(ppauto_dt %>% filter(grcode == 43, accidentyear == 1993)) +
+plot_predict <- ggplot(carrier_full_dt %>% filter(grcode == 43, acc_year == '1993')) +
     geom_line (aes(x = time, y = value, group = iter)
               ,data = predict_cone_tbl, alpha = 0.01) +
-    geom_line (aes(x = developmentlag, y = cumpaidloss_b), colour = 'red') +
-    geom_point(aes(x = developmentlag, y = cumpaidloss_b), colour = 'blue') +
+    geom_line (aes(x = dev_lag, y = cum_loss), colour = 'red') +
+    geom_point(aes(x = dev_lag, y = cum_loss), colour = 'blue') +
     expand_limits(y = 0) +
     scale_y_continuous(labels = scales::dollar) +
     ggtitle("Plot of 1993 Year Loss Prediction") +
@@ -378,11 +402,11 @@ predict_cone_tbl <- extract(lc_1_stanfit)$loss_prediction[,8,] %>%
     gather("timelbl", "value", -iter) %>%
     mutate(time = gsub("V", "", timelbl) %>% as.numeric())
 
-plot_predict <- ggplot(ppauto_dt %>% filter(grcode == 43, accidentyear == 1995)) +
+plot_predict <- ggplot(carrier_full_dt %>% filter(grcode == 43, acc_year == '1995')) +
     geom_line (aes(x = time, y = value, group = iter)
               ,data = predict_cone_tbl, alpha = 0.01) +
-    geom_line (aes(x = developmentlag, y = cumpaidloss_b), colour = 'red') +
-    geom_point(aes(x = developmentlag, y = cumpaidloss_b), colour = 'blue') +
+    geom_line (aes(x = dev_lag, y = cum_loss), colour = 'red') +
+    geom_point(aes(x = dev_lag, y = cum_loss), colour = 'blue') +
     expand_limits(y = 0) +
     scale_y_continuous(labels = scales::dollar) +
     ggtitle("Plot of 1995 Year Loss Prediction") +
@@ -392,48 +416,124 @@ plot_predict <- ggplot(ppauto_dt %>% filter(grcode == 43, accidentyear == 1995))
 plot(plot_predict)
 ```
 
+# Posterior Predictive Checks
 
-## SolvencyII and the 99.5 Percentile
+A very important part of all this is getting a sense of the aspects of
+the data that the model is not capturing well. A recommended method
+for doing this is creating *posterior predictive checks* (PPCs), that is,
+assessing the validity of the model in a certain area by comparing the
+generated values in the sample against the observed values in the
+dataset.
 
-```{r model1_dosolv2, eval=FALSE, include=FALSE, echo=FALSE, results='hide', cache=FALSE, warning=TRUE, message=FALSE}
-losssample_dt <- melt(extract(lc_1_stanfit)$loss_prediction);
-setDT(losssample_dt)
+There are no standard methods for creating PPCs, instead we need to
+think of different aspects of our data and see how well our model is
+doing at modelling those idiosyncracies in the data.
 
-newdata_dt <- losssample_dt[,
-                            .SD[Var3 == (12 - Var2)
-                               ,.(cohort_id = Var2
-                                 ,value = quantile(value, 0.995))]
-                           ,by = Var2]
+We will look at a number of PPCs for the single insurer dataset here.
 
-newdata_dt[, accyear    := cohort_dt$accyear[cohort_id]]
-newdata_dt[, devlag     := lst_standata$cohort_maxtime[newdata_dt$cohort_id] + 1]
-newdata_dt[, premium    := cohort_dt$premium[cohort_id]]
-newdata_dt[, cumloss    := value]
-newdata_dt[, loss_ratio := value / premium]
+## Range of Loss Ratios
 
-rerun_dt <- rbind(snapshot_dt, newdata_dt[, .(accyear, devlag, premium, cumloss, loss_ratio)])
-rerun_dt <- rerun_dt[order(accyear,devlag)]
+We first investigate how well the model is doing at capturing the
+range of Loss Ratios observed in the data: are the largest and
+smallest predicted Loss Ratios in the model reflecting what we see in
+the data?
 
-usedata_dt <- rerun_dt
+To do this we do a few things: we first add some calculations to the
+`generated quantities` block in the Stan file. These calculated values
+are then compared to what we observed in the data to see how well our
+model does.
 
-lst_solv2_standata <- list(growthmodel_id = 1   # Use weibull rather than loglogistic
-                          ,n_data         = usedata_dt[, .N]
-                          ,n_time         = usedata_dt[, length(unique(devlag))]
-                          ,n_cohort       = cohort_dt[, .N]
-                          ,cohort_id      = match(usedata_dt$accyear, cohort_dt$accyear)
-                          ,cohort_maxtime = usedata_dt[, .(maxtime = max(devlag)), by = accyear][order(accyear)]$maxtime
-                          ,t_value        = usedata_dt[, sort(unique(devlag))]
-                          ,t_idx          = usedata_dt[, match(devlag, sort(unique(devlag)))]
-                          ,premium        = cohort_dt$premium
-                          ,loss           = usedata_dt$cumloss
-                           )
+```{r compare_minmax_values, echo=TRUE}
+ppc_min_lr <- extract(lc_1_stanfit)$ppc_minLR
+ppc_max_lr <- extract(lc_1_stanfit)$ppc_maxLR
 
-lc_1_solv2_stanfit <- stan(file   = 'losscurves_single.stan'
-                          ,data   = lst_solv2_standata
-                          ,iter   = 500
-                          ,chains = 16
-                           )
+lr_dt <- carrier_full_dt %>%
+    filter(grcode == use_grcode[1]
+          ,dev_lag == 10) %>%
+    summarise(min_lr = min(loss_ratio)
+             ,max_lr = max(loss_ratio))
+
+min_plot <- ggplot() +
+    geom_density(aes(x = ppc_min_lr)) +
+    geom_vline(aes(xintercept = lr_dt$min_lr), colour = 'red') +
+    xlab("Minimum Loss Ratio") +
+    ylab("Probability Density")
+
+max_plot <- ggplot() +
+    geom_density(aes(x = ppc_max_lr)) +
+    geom_vline(aes(xintercept = lr_dt$max_lr), colour = 'red') +
+    xlab("Maximum Loss Ratio") +
+    ylab("Probability Density")
+
+
+plot_grid(min_plot, max_plot, nrow = 2)
 ```
+
+Looking at the above plots, we see that the model is doing reasonably
+well at capturing the spreads of Loss Ratios.
+
+This is not hugely surprising though, as we have only ten accounting
+years in the dataset and have seen a decent spread of those already in
+the dataset.
+
+## Aggregate Reserve Amounts
+
+While it is useful to break down the loss curves into these different
+cohorts and model each curve separately, from the point of view of an
+insurance company we care much less about each year's estimates as we
+do about the overall amount of money we need to hold back to cover
+claims.
+
+This presents us with a way to run a check: how well does our model do
+at estimating the reserves required for all the accounting years put
+together. We hope that while each accounting year will have mistakes,
+over-estimates and under-estimates will tend to cancel each other
+somewhat. Thus, we calculate the total future claims for the book as a
+whole at 1998 and then compare that to the actual final amounts
+observed in the data.
+
+As this process may still be a little vague, we will be explicit:
+
+* For each accounting year $y$, we look at the current claim level at
+  the point of modelling, 1998. This gives us ten values as we have
+  ten accounting years.
+* We add these ten numbers to calculate $TCKC_{1998}$, the total of
+  current known claims as at 1998.
+* For each iteration in the sample, we project forward the estimate
+  for the final amount of claims for each accounting year. Summing
+  across the accounting year we end up with a sample of expected final
+  claims, $EFC_{1998}$.
+* With a sample of this value, we then compare it to the actual,
+  observed values of the variable, $AFC_{1998}$ and see how the sample
+  values are distributed around the data-calculated value.
+
+```{r ppc_future_claim_estimation, echo=TRUE}
+tckc <- carrier_snapshot_dt %>%
+    filter(grcode == use_grcode[1]) %>%
+    group_by(acc_year) %>%
+    filter(dev_lag == max(dev_lag)) %>%
+    .[["cum_loss"]] %>%
+    sum
+
+afc <- carrier_full_dt %>%
+    filter(grcode == use_grcode[1]) %>%
+    group_by(acc_year) %>%
+    filter(dev_lag == max(dev_lag)) %>%
+    .[["cum_loss"]] %>%
+    sum
+
+future_claims <- afc - tckc
+
+
+ggplot() +
+    geom_density(aes(x = extract(lc_1_stanfit)$ppc_EFC)) +
+    geom_vline(aes(xintercept = future_claims), colour = 'red') +
+    scale_x_continuous(labels = scales::dollar) +
+    xlab("Future Claims (,000s)") +
+    ylab("Probability Density")
+```
+
+
 
 
 # Multiple Insurers
@@ -471,7 +571,7 @@ lst_standata <- list(growthmodel_id = 1   # Use weibull
                     ,cohort_maxtime = cohort_dt$maxtime
                     )
 
-mi_2_stanmodel <- stan_model(stanfile, verbose = TRUE)
+mi_2_stanmodel <- stan_model(stanfile, verbose = FALSE)
 
 mi_2_stanvb  <- vb(mi_2_stanmodel
                   ,data = lst_standata
@@ -481,7 +581,7 @@ mi_2_stanfit <- sampling(mi_2_stanmodel
                         ,data    = lst_standata
                         ,iter    = 500
                         ,chains  = 8
-                        ,verbose = TRUE
+                        ,verbose = FALSE
                          )
 
 mi_2_draws   <- extract(mi_2_stanfit, permuted = FALSE, inc_warmup = TRUE)
@@ -498,24 +598,24 @@ plotdata_dt[, variable := factor(rownames(mi_2_monitor)
                                 ,levels = rownames(mi_2_monitor))]
 
 ggplot(plotdata_dt[grep("hyper|sd_LR|_exp", variable)]) +
-      geom_point(aes(x = variable, y = mean)) +
-      geom_errorbar(aes(x = variable, ymin = `10%`, ymax = `90%`), width = 0) +
-      expand_limits(y = 0) +
-      theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-      xlab("Parameter") +
-      ylab("Value")
+    geom_point(aes(x = variable, y = mean)) +
+    geom_errorbar(aes(x = variable, ymin = `10%`, ymax = `90%`), width = 0) +
+    expand_limits(y = 0) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+    xlab("Parameter") +
+    ylab("Value")
 ```
 
 We want to look at the multiple carriers expected LR is by themselves
 
 ```{r plot_multiple_insurers_expected_lr, echo=TRUE}
 ggplot(plotdata_dt[grep("mu_LR_exp", variable)]) +
-      geom_point(aes(x = variable, y = mean)) +
-      geom_errorbar(aes(x = variable, ymin = `10%`, ymax = `90%`), width = 0) +
-      expand_limits(y = 0) +
-      theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-      xlab("Parameter") +
-      ylab("Value")
+    geom_point(aes(x = variable, y = mean)) +
+    geom_errorbar(aes(x = variable, ymin = `10%`, ymax = `90%`), width = 0) +
+    expand_limits(y = 0) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+    xlab("Parameter") +
+    ylab("Value")
 ```
 
 
