@@ -77,6 +77,14 @@ transformed parameters {
     }
   }
 
+  for(i in 1:n_org) {
+    for(j in 1:n_cohort) {
+      for(k in 1:n_time) {
+        loss_mean[i,j,k] = 0;
+      }
+    }
+  }
+
   for(i in 1:n_data) {
     loss_mean[org_id[i], cohort_id[i], t_idx[i]] = LR[org_id[i], cohort_id[i]] *
       premium[i] *

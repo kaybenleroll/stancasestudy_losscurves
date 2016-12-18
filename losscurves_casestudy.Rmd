@@ -108,13 +108,11 @@ We will first look at the car insurance loss data from casact.org
 ```{r load_data, echo=TRUE}
 ### File was downloaded from http://www.casact.org/research/reserve_data/ppauto_pos.csv
 
-ppauto_dt <- read_csv("data/ppauto_pos.csv", progress = FALSE)
+ppauto_tbl <- read_csv("data/ppauto_pos.csv", progress = FALSE)
 
-setDT(ppauto_dt)
+names(ppauto_tbl) <- ppauto_tbl %>% names %>% tolower
 
-setnames(ppauto_dt, tolower(names(ppauto_dt)))
-
-head(ppauto_dt)
+head(ppauto_tbl)
 ```
 
 In terms of modeling the work, we want to ensure the data we work with
@@ -127,7 +125,7 @@ as a way to validate the model.
 ```{r create_data_snapshot, echo=TRUE}
 use_grcode <- c(43,353,388,620)
 
-carrier_full_dt <- ppauto_dt %>%
+carrier_full_tbl <- ppauto_tbl %>%
     mutate(acc_year   = as.character(accidentyear)
           ,dev_year   = developmentyear
           ,dev_lag    = developmentlag
@@ -136,7 +134,7 @@ carrier_full_dt <- ppauto_dt %>%
           ,loss_ratio = cum_loss / premium) %>%
     select(grcode, acc_year, dev_year, dev_lag, premium, cum_loss, loss_ratio)
 
-carrier_snapshot_dt <- carrier_full_dt %>%
+carrier_snapshot_tbl <- carrier_full_tbl %>%
     filter(grcode %in% use_grcode
           ,dev_year < 1998)
 
@@ -147,7 +145,7 @@ proceed with any analysis, we first plot the data, grouping the loss
 curves by accounting year and faceting by carrier.
 
 ```{r plot_insurer_curves, echo=TRUE}
-ggplot(carrier_snapshot_dt) +
+ggplot(carrier_snapshot_tbl) +
     geom_line(aes(x = dev_lag, y = loss_ratio, colour = as.character(acc_year))
              ,size = 0.3) +
     expand_limits(y = c(0,1)) +
@@ -164,10 +162,10 @@ We look at the chain ladder of the data, rather than looking at the
 loss ratios we just look at the dollar amounts of the losses.
 
 ```{r create_chainladder, results=TRUE}
-snapshot_dt <- carrier_snapshot_dt %>%
+snapshot_tbl <- carrier_snapshot_tbl %>%
     filter(grcode %in% use_grcode[1])
 
-snapshot_dt %>%
+snapshot_tbl %>%
     select(acc_year, dev_lag, premium, cum_loss) %>%
     spread(dev_lag, cum_loss) %>%
     print
@@ -176,7 +174,7 @@ snapshot_dt %>%
 We also look at the loss ratios in a similar fashion
 
 ```{r create_chainladder_lossratios, echo=TRUE}
-snapshot_dt %>%
+snapshot_tbl %>%
     select(acc_year, dev_lag, premium, loss_ratio) %>%
     spread(dev_lag, loss_ratio) %>%
     print(digits = 2)
@@ -189,9 +187,8 @@ We are working with the loss ratio, so we recreate the chain ladder
 format but look at loss ratios instead of dollar losses.
 
 ```{r loss_curve_plot, echo=TRUE}
-ggplot(snapshot_dt) +
+ggplot(snapshot_tbl) +
     geom_line(aes(x = dev_lag, y = loss_ratio, colour = acc_year)
-             ,data = plot_dt
              ,size = 0.3) +
     expand_limits(y = 0) +
     xlab('Development Time') +
@@ -209,40 +206,40 @@ first 1988 cohort, and one less for each subsequent year. Our final
 cohort for 1997 has only a single year of development
 
 ```{r stan_data, echo=TRUE}
-cohort_dt <- snapshot_dt %>%
+cohort_tbl <- snapshot_tbl %>%
     select(acc_year, premium) %>%
     unique() %>%
     mutate(cohort_id = 1:n())
 
-usedata_dt <- snapshot_dt
+usedata_tbl <- snapshot_tbl
 
-cohort_maxtime <- usedata_dt %>%
+cohort_maxtime <- usedata_tbl %>%
     group_by(acc_year) %>%
     summarise(maxtime = max(dev_lag)) %>%
     arrange(acc_year) %>%
     .[[2]]
 
-cohort_premium <- usedata_dt %>%
+cohort_premium <- usedata_tbl %>%
     group_by(acc_year) %>%
     summarise(premium = unique(premium)) %>%
     .[[2]]
 
-t_values <- usedata_dt %>%
+t_values <- usedata_tbl %>%
     select(dev_lag) %>%
     arrange(dev_lag) %>%
     unique %>%
     .[[1]]
 
 standata_lst <- list(growthmodel_id = 1   # Use weibull rather than loglogistic
-                    ,n_data         = usedata_dt %>% nrow
-                    ,n_time         = usedata_dt %>% select(dev_lag)  %>% unique %>% nrow
-                    ,n_cohort       = usedata_dt %>% select(acc_year) %>% unique %>% nrow
-                    ,cohort_id      = get_character_index(usedata_dt$acc_year)
+                    ,n_data         = usedata_tbl %>% nrow
+                    ,n_time         = usedata_tbl %>% select(dev_lag)  %>% unique %>% nrow
+                    ,n_cohort       = usedata_tbl %>% select(acc_year) %>% unique %>% nrow
+                    ,cohort_id      = get_character_index(usedata_tbl$acc_year)
                     ,cohort_maxtime = cohort_maxtime
                     ,t_value        = t_values
-                    ,t_idx          = get_character_index(usedata_dt$dev_lag)
+                    ,t_idx          = get_character_index(usedata_tbl$dev_lag)
                     ,premium        = cohort_premium
-                    ,loss           = usedata_dt$cum_loss
+                    ,loss           = usedata_tbl$cum_loss
                     )
 ```
 
@@ -331,12 +328,12 @@ rstan::traceplot(lc_1_stanfit, pars = c("gf", "loss_sd")) +
 Now we check the 50\% credibility intervals of the parameters
 
 ```{r model1_paramplot, echo=TRUE}
-plotdata_dt <- lc_1_monitor_tbl %>%
+plotdata_tbl <- lc_1_monitor_tbl %>%
     filter(variable %in% use_vars) %>%
     select(mean, `25%`, `50%`, `75%`) %>%
     mutate(variable = factor(use_vars, levels = use_vars))
 
-ggplot(plotdata_dt) +
+ggplot(plotdata_tbl) +
     geom_point(aes(x = variable, y = mean)) +
     geom_errorbar(aes(x = variable, ymin = `25%`, ymax = `75%`), width = 0) +
     expand_limits(y = 0) +
@@ -357,7 +354,7 @@ fitted_curves_tbl <- extract(lc_1_stanfit)$loss_sample[,1,] %>%
     gather("timelbl", "value", -iter) %>%
     mutate(time = gsub("V", "", timelbl) %>% as.numeric())
 
-ggplot(snapshot_dt %>% filter(acc_year == 1988)) +
+ggplot(snapshot_tbl %>% filter(acc_year == 1988)) +
     geom_line (aes(x = time, y = value, group = iter)
               ,data = fitted_curves_tbl, alpha = 0.01) +
     geom_line (aes(x = dev_lag, y = cum_loss), colour = 'red') +
@@ -379,7 +376,7 @@ predict_cone_tbl <- extract(lc_1_stanfit)$loss_prediction[,6,] %>%
     gather("timelbl", "value", -iter) %>%
     mutate(time = gsub("V", "", timelbl) %>% as.numeric())
 
-plot_predict <- ggplot(carrier_full_dt %>% filter(grcode == 43, acc_year == '1993')) +
+plot_predict <- ggplot(carrier_full_tbl %>% filter(grcode == 43, acc_year == '1993')) +
     geom_line (aes(x = time, y = value, group = iter)
               ,data = predict_cone_tbl, alpha = 0.01) +
     geom_line (aes(x = dev_lag, y = cum_loss), colour = 'red') +
@@ -402,7 +399,7 @@ predict_cone_tbl <- extract(lc_1_stanfit)$loss_prediction[,8,] %>%
     gather("timelbl", "value", -iter) %>%
     mutate(time = gsub("V", "", timelbl) %>% as.numeric())
 
-plot_predict <- ggplot(carrier_full_dt %>% filter(grcode == 43, acc_year == '1995')) +
+plot_predict <- ggplot(carrier_full_tbl %>% filter(grcode == 43, acc_year == '1995')) +
     geom_line (aes(x = time, y = value, group = iter)
               ,data = predict_cone_tbl, alpha = 0.01) +
     geom_line (aes(x = dev_lag, y = cum_loss), colour = 'red') +
@@ -447,7 +444,7 @@ model does.
 ppc_min_lr <- extract(lc_1_stanfit)$ppc_minLR
 ppc_max_lr <- extract(lc_1_stanfit)$ppc_maxLR
 
-lr_dt <- carrier_full_dt %>%
+lr_tbl <- carrier_full_tbl %>%
     filter(grcode == use_grcode[1]
           ,dev_lag == 10) %>%
     summarise(min_lr = min(loss_ratio)
@@ -455,13 +452,13 @@ lr_dt <- carrier_full_dt %>%
 
 min_plot <- ggplot() +
     geom_density(aes(x = ppc_min_lr)) +
-    geom_vline(aes(xintercept = lr_dt$min_lr), colour = 'red') +
+    geom_vline(aes(xintercept = lr_tbl$min_lr), colour = 'red') +
     xlab("Minimum Loss Ratio") +
     ylab("Probability Density")
 
 max_plot <- ggplot() +
     geom_density(aes(x = ppc_max_lr)) +
-    geom_vline(aes(xintercept = lr_dt$max_lr), colour = 'red') +
+    geom_vline(aes(xintercept = lr_tbl$max_lr), colour = 'red') +
     xlab("Maximum Loss Ratio") +
     ylab("Probability Density")
 
@@ -508,14 +505,14 @@ As this process may still be a little vague, we will be explicit:
   values are distributed around the data-calculated value.
 
 ```{r ppc_future_claim_estimation, echo=TRUE}
-tckc <- carrier_snapshot_dt %>%
+tckc <- carrier_snapshot_tbl %>%
     filter(grcode == use_grcode[1]) %>%
     group_by(acc_year) %>%
     filter(dev_lag == max(dev_lag)) %>%
     .[["cum_loss"]] %>%
     sum
 
-afc <- carrier_full_dt %>%
+afc <- carrier_full_tbl %>%
     filter(grcode == use_grcode[1]) %>%
     group_by(acc_year) %>%
     filter(dev_lag == max(dev_lag)) %>%
@@ -538,8 +535,11 @@ ggplot() +
 
 # Multiple Insurers
 
-```{r run_multiple_insurers, echo=TRUE, cache=TRUE}
+```{r run_multiple_insurers, include=TRUE}
 stanfile <- 'losscurves_multiple.stan'
+
+ppauto_dt <- ppauto_tbl
+setDT(ppauto_dt)
 
 grcodes    <- ppauto_dt[, .(pos_prem = all(earnedpremdir_b > 0)), by = grcode][pos_prem == TRUE, grcode]
 use_grcode <- grcodes[1:15]
@@ -604,11 +604,7 @@ ggplot(plotdata_dt[grep("hyper|sd_LR|_exp", variable)]) +
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
     xlab("Parameter") +
     ylab("Value")
-```
 
-We want to look at the multiple carriers expected LR is by themselves
-
-```{r plot_multiple_insurers_expected_lr, echo=TRUE}
 ggplot(plotdata_dt[grep("mu_LR_exp", variable)]) +
     geom_point(aes(x = variable, y = mean)) +
     geom_errorbar(aes(x = variable, ymin = `10%`, ymax = `90%`), width = 0) +
