@@ -229,7 +229,7 @@ Final Loss Ratio, $\text{LR}_{Y}$, each cumulated loss value in the
 data can be modelled as
 
 $$
-\text{Loss}(Y, t) \sim \text{Normal}(\mu(Y, t), \sigma_Y)
+\text{Loss}(Y, t) \sim \text{Normal}(\mu(Y, t), \, \sigma_Y)
 $$
 
 where we have
@@ -391,7 +391,7 @@ standata_lst <- list(
 
 The full Stan file is shown below:
 
-```{r model1_stanfile, comment="", echo=TRUE}
+```{r model_sislob_stanfile, comment="", echo=TRUE}
 stan_file <- "losscurves_sislob.stan"
 
 cat(readLines(stan_file), sep = "\n")
@@ -428,9 +428,13 @@ We use the `generated quantities` block to facilitate both posterior predictive 
 
 We now proceed with fitting the stan model and examing the output.
 
-```{r model1_stanfit, results='hide', cache=FALSE, warning=TRUE, message=FALSE}
-model_sislob_stanfit <- stan(
-    file   = stan_file
+```{r model_sislob_stanmodel, cache=FALSE, warning=TRUE, message=FALSE}
+model_sislob_stanmodel <- stan_model(stan_file)
+```
+
+```{r model_sislob_stanfit, results='hide', cache=FALSE, warning=TRUE, message=FALSE}
+model_sislob_stanfit <- sampling(
+    object = model_sislob_stanmodel
    ,data   = standata_lst
    ,iter   = 500
    ,chains = 8
@@ -439,12 +443,12 @@ model_sislob_stanfit <- stan(
 
 The Stan sample contains no divergent transitions, so that is a good start.
 
-### Sampler Diagnostic Plots
+## Sampler Diagnostic Plots
 
 It is always worth checking convergence of the model by checking the
 $\hat{R}$ and ensuring it is less than about 1.1
 
-```{r model1_convergenceplot, echo=TRUE}
+```{r model_sislob_convergenceplot, echo=TRUE}
 # Plot of convergence statistics
 model_sislob_draws       <- extract(model_sislob_stanfit, permuted = FALSE, inc_warmup = TRUE)
 model_sislob_monitor_tbl <- as.data.frame(monitor(model_sislob_draws, print = FALSE))
@@ -465,7 +469,7 @@ The $\hat{R}$ values for the parameter appear to be in or around 1, so that is e
 
 It is also worth checking the size of `n_eff` for each of the variables:
 
-```{r model1_neff_plots, echo=TRUE}
+```{r model_sislob_neff_plots, echo=TRUE}
 ggplot(model_sislob_monitor_tbl) +
     aes(x = parameter, y = n_eff, color = parameter) +
     geom_jitter(height = 0, width = 0.2, show.legend = FALSE) +
@@ -475,34 +479,83 @@ ggplot(model_sislob_monitor_tbl) +
     ylab(paste0("Effective Sample Count (n_eff)"))
 ```
 
-The packages `bayesplot` provides some simple diagnostic plots for fits, so we look at those.
-
-```{r model1_bayesplot_rhat, echo=TRUE}
-model_sislob_stanfit %>%
-    rhat(pars = c('omega','theta','LR','mu_LR','sd_LR','loss_sd')) %>%
-    mcmc_rhat
-```
-
 Check the traces. There are a large number of parameters in this model
 fit, so we break them up into groups. First we look at `omega`,
 `theta` and `LR`
 
-```{r model1_traceplot1, echo=TRUE}
+```{r model_sislob_traceplot1, echo=TRUE}
 traceplot(model_sislob_stanfit, pars = c("omega", "theta", "LR")) +
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 ```
 
 Now we look at the traces for `gf` and `loss_sd`.
 
-```{r model1_traceplot2, echo=TRUE}
+```{r model_sislob_traceplot2, echo=TRUE}
 traceplot(model_sislob_stanfit, pars = c("gf", "loss_sd")) +
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 ```
 
-Now we check the 50\% credibility intervals of the parameters
+### Using `bayesplot` Functionality
 
-```{r model1_paramplot, echo=TRUE}
-param_root <- c("omega", "theta", "LR", "gf", "loss_sd")
+The packages `bayesplot` provides some simple diagnostic plots for fits, so we look at those.
+
+```{r model_sislob_diagnostic_pars, echo=TRUE}
+stanmodel_pars <- c('omega','theta','LR','mu_LR','sd_LR','loss_sd')
+```
+
+We have some simple lineplots for $\hat{R}$, and this should convey similar information to our previous plots.
+
+```{r model_sislob_bayesplot_rhat, echo=TRUE}
+model_sislob_stanfit %>%
+    rhat(pars = stanmodel_pars) %>%
+    mcmc_rhat(.) + yaxis_text()
+```
+
+Related to this is $n_{\text{eff}}$:
+
+```{r model_sislob_bayesplot_neff, echo=TRUE}
+model_sislob_stanfit %>%
+    neff_ratio(pars = stanmodel_pars) %>%
+    mcmc_neff(.) + yaxis_text()
+```
+
+We also look for the autocorrelation in various parameters:
+
+```{r model_sislob_bayesplot_acf_omegatheta, echo=TRUE}
+model_sislob_stanfit %>%
+    extract(inc_warmup = FALSE, permuted = FALSE) %>%
+    mcmc_acf(pars = c('omega','theta'))
+```
+
+```{r model_sislob_bayesplot_acf_LR, echo=TRUE, fig.height=14}
+model_sislob_draws %>% mcmc_acf(pars = c('mu_LR','LR[3]'))
+```
+
+As we are using the NUTS algorithm to take our sample from the posterior, we may use some specific diagnostics to check how effective it was.
+
+```{r model_sislob_energy_diagnostic, echo=TRUE}
+model_sislob_stanfit %>%
+    nuts_params %>%
+    mcmc_nuts_energy(binwidth = 1)
+```
+
+
+
+And we check the traces for convergence too, checking to see if they mix.
+
+```{r model_sislob_bayesplot_traces, echo=TRUE}
+model_sislob_stanfit %>%
+    as.matrix %>%
+    mcmc_trace(regex_pars = c('theta','omega','LR\\[','mu_LR','sd_LR','loss_sd'))
+```
+
+
+## Assessing the Fit
+
+Having convinced ourselves that the samples have converged, we proceed to checking the quality of the fit. We check the 50\% credibility intervals of the parameters
+
+```{r model_sislob_paramplot, echo=TRUE}
+param_root <- c("omega", "theta", "LR", "mu_LR_exp", "gf", "loss_sd")
 
 use_vars <- model_sislob_monitor_tbl %>%
     filter(parameter %in% param_root) %>%
@@ -709,6 +762,102 @@ ggplot() +
     xlab("Future Claims ('000s)") +
     ylab("Probability Density")
 ```
+
+
+# The Log-logistic Growth Model
+
+We now repeat all of the above work, using the log-logistic functional form for the growth factors instead.
+
+The code is broadly similar, and we have wrapped the code into a single function which takes the input data and creates the fit.
+
+```{r model_loglogistic, echo=TRUE, results='hide', warning=TRUE, message=FALSE}
+model_sislob_ll_list <- create_stanfit(model_sislob_stanmodel, usedata_tbl, model_id = 0)
+
+model_sislob_ll_stanfit <- model_sislob_ll_list$stanfit
+```
+
+## Diagnostic Plots
+
+```{r model_sislob_ll_bayesplot_rhat, echo=TRUE}
+model_sislob_ll_stanfit %>%
+    rhat(pars = stanmodel_pars) %>%
+    mcmc_rhat(.) + yaxis_text()
+```
+
+Related to this is $n_{\text{eff}}$:
+
+```{r model_sislob_ll_bayesplot_neff, echo=TRUE}
+model_sislob_ll_stanfit %>%
+    neff_ratio(pars = stanmodel_pars) %>%
+    mcmc_neff(.) + yaxis_text()
+```
+
+
+
+```{r model_sislob_ll_bayesplot_acf_omegatheta, echo=TRUE}
+model_sislob_ll_stanfit %>%
+    extract(inc_warmup = FALSE, permuted = FALSE) %>%
+    mcmc_acf(pars = c('omega','theta'))
+```
+
+```{r model_sislob_ll_bayesplot_acf_LR, echo=TRUE, fig.height=14}
+model_sislob_ll_stanfit %>%
+    extract(inc_warmup = FALSE, permuted = FALSE) %>%
+    mcmc_acf(pars = c('mu_LR','LR[3]'))
+```
+
+Finally, we check the energy diagnostic plots to check they are similar.
+
+```{r model_sislob_ll_energy_diagnostic, echo=TRUE}
+model_sislob_ll_stanfit %>%
+    nuts_params %>%
+    mcmc_nuts_energy(binwidth = 1)
+```
+
+
+
+
+
+```{r model_sislob_ll_bayesplot_traces, echo=TRUE}
+model_sislob_ll_stanfit %>%
+    as.matrix %>%
+    mcmc_trace(regex_pars = c('theta','omega','LR\\[','mu_LR','sd_LR','loss_sd'))
+```
+
+
+## Parameter Values
+
+
+## Posterior Predictive Checks
+
+```{r ppc_model_ll_future_claim_estimation, echo=TRUE}
+tckc <- carrier_snapshot_tbl %>%
+    filter(grcode == use_grcode[1]) %>%
+    group_by(acc_year) %>%
+    filter(dev_lag == max(dev_lag)) %>%
+    .[["cum_loss"]] %>%
+    sum
+
+afc <- carrier_full_tbl %>%
+    filter(grcode == use_grcode[1]) %>%
+    group_by(acc_year) %>%
+    filter(dev_lag == max(dev_lag)) %>%
+    .[["cum_loss"]] %>%
+    sum
+
+future_claims <- afc - tckc
+
+
+ggplot() +
+    geom_density(aes(x = extract(model_sislob_ll_stanfit)$ppc_EFC)) +
+    geom_vline(aes(xintercept = future_claims), colour = 'red') +
+    scale_x_continuous(labels = scales::dollar) +
+    xlab("Future Claims ('000s)") +
+    ylab("Probability Density")
+```
+
+# Analysing A New Insurer
+
 
 
 

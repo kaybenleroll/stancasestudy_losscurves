@@ -77,8 +77,8 @@ model {
 
   loss_sd ~ lognormal(0, 0.7);
 
-  omega ~ lognormal(0, 1);
-  theta ~ lognormal(0, 1);
+  omega ~ lognormal(0, 0.5);
+  theta ~ lognormal(0, 0.5);
 
   for(i in 1:n_data) {
     loss[i] ~ normal(loss_mean[cohort_id[i], t_idx[i]], premium[cohort_id[i]] * loss_sd);
