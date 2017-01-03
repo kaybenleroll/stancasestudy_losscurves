@@ -33,10 +33,10 @@ knitr::opts_chunk$set(tidy  = FALSE
 library(tidyverse)
 library(data.table)
 library(dtplyr)
+library(scales)
 
 library(rstan)
 library(bayesplot)
-
 library(cowplot)
 
 
@@ -107,24 +107,24 @@ We load the Schedule P loss data from casact.org.
 ### File was downloaded from http://www.casact.org/research/reserve_data/ppauto_pos.csv
 data_files <- dir("data/", pattern = "\\.csv", full.names = TRUE)
 
-claimdata_tbl <- data_files %>%
+rawdata_tbl <- data_files %>%
     map(read_claim_datafile) %>%
     bind_rows
 
-glimpse(claimdata_tbl)
+glimpse(rawdata_tbl)
 
-print(claimdata_tbl)
+print(rawdata_tbl)
 ```
 
 ```{r reorganise_data, echo=TRUE}
-claimdata_tbl <- claimdata_tbl %>%
+claimdata_tbl <- rawdata_tbl %>%
     mutate(acc_year   = as.character(accidentyear)
           ,dev_year   = developmentyear
           ,dev_lag    = developmentlag
           ,premium    = earnedpremdir
           ,cum_loss   = cumpaidloss
           ,loss_ratio = cum_loss / premium) %>%
-    select(grcode, lob, acc_year, dev_year, dev_lag, premium, cum_loss, loss_ratio)
+    select(grcode, grname, lob, acc_year, dev_year, dev_lag, premium, cum_loss, loss_ratio)
 ```
 
 
@@ -428,7 +428,7 @@ We use the `generated quantities` block to facilitate both posterior predictive 
 
 We now proceed with fitting the stan model and examing the output.
 
-```{r model_sislob_stanmodel, cache=FALSE, warning=TRUE, message=FALSE}
+```{r model_sislob_stanmodel, cache=FALSE, warning=TRUE, message=FALSE, results='hide'}
 model_sislob_stanmodel <- stan_model(stan_file)
 ```
 
@@ -543,7 +543,7 @@ model_sislob_stanfit %>%
 
 And we check the traces for convergence too, checking to see if they mix.
 
-```{r model_sislob_bayesplot_traces, echo=TRUE}
+```{r model_sislob_grcode353_bayesplot_traces, echo=TRUE}
 model_sislob_stanfit %>%
     as.matrix %>%
     mcmc_trace(regex_pars = c('theta','omega','LR\\[','mu_LR','sd_LR','loss_sd'))
@@ -575,6 +575,14 @@ ggplot(plotdata_tbl) +
     ylab("Value")
 ```
 
+The `bayesplot` package also provides some functionality for plotting the parameters values.
+
+```{r plot_bayesplot_parameters, echo=TRUE}
+model_sislob_stanfit %>%
+    extract(inc_warmup = FALSE, permuted = FALSE) %>%
+    mcmc_intervals(regex_pars = c('omega','theta','LR\\[', 'mu_LR','sd_LR','loss_sd'))
+```
+
 Now that we have our fit we can start looking at some plots for
 it. First we look at some very simple sanity-check plots. We look at
 the full development of an accounting year and see how our fit is
@@ -593,7 +601,7 @@ ggplot(snapshot_tbl %>% filter(acc_year == 1988)) +
     geom_line (aes(x = dev_lag, y = cum_loss), colour = 'red') +
     geom_point(aes(x = dev_lag, y = cum_loss), colour = 'blue') +
     expand_limits(y = 0) +
-    scale_y_continuous(labels = scales::dollar) +
+    scale_y_continuous(labels = dollar) +
     ggtitle("Plot of 1988 Year Loss Development Against Posterior Distribution") +
     xlab("Time") +
     ylab("Loss")
@@ -615,7 +623,7 @@ plot_predict <- ggplot(carrier_full_tbl %>% filter(grcode == 43, acc_year == '19
     geom_line (aes(x = dev_lag, y = cum_loss), colour = 'red') +
     geom_point(aes(x = dev_lag, y = cum_loss), colour = 'blue') +
     expand_limits(y = 0) +
-    scale_y_continuous(labels = scales::dollar) +
+    scale_y_continuous(labels = dollar) +
     ggtitle("Plot of 1993 Year Loss Prediction") +
     xlab("Time") +
     ylab("Loss")
@@ -638,7 +646,7 @@ plot_predict <- ggplot(carrier_full_tbl %>% filter(grcode == 43, acc_year == '19
     geom_line (aes(x = dev_lag, y = cum_loss), colour = 'red') +
     geom_point(aes(x = dev_lag, y = cum_loss), colour = 'blue') +
     expand_limits(y = 0) +
-    scale_y_continuous(labels = scales::dollar) +
+    scale_y_continuous(labels = dollar) +
     ggtitle("Plot of 1995 Year Loss Prediction") +
     xlab("Time") +
     ylab("Loss")
@@ -758,7 +766,7 @@ future_claims <- afc - tckc
 ggplot() +
     geom_density(aes(x = extract(model_sislob_stanfit)$ppc_EFC)) +
     geom_vline(aes(xintercept = future_claims), colour = 'red') +
-    scale_x_continuous(labels = scales::dollar) +
+    scale_x_continuous(labels = dollar) +
     xlab("Future Claims ('000s)") +
     ylab("Probability Density")
 ```
@@ -827,6 +835,13 @@ model_sislob_ll_stanfit %>%
 
 ## Parameter Values
 
+```{r model_sislob_ll_bayesplot_parameters, echo=TRUE}
+model_sislob_ll_stanfit %>%
+    extract(inc_warmup = FALSE, permuted = FALSE) %>%
+    mcmc_intervals(regex_pars = c('omega','theta','LR\\[', 'mu_LR','sd_LR','loss_sd'))
+```
+
+
 
 ## Posterior Predictive Checks
 
@@ -851,15 +866,286 @@ future_claims <- afc - tckc
 ggplot() +
     geom_density(aes(x = extract(model_sislob_ll_stanfit)$ppc_EFC)) +
     geom_vline(aes(xintercept = future_claims), colour = 'red') +
-    scale_x_continuous(labels = scales::dollar) +
+    scale_x_continuous(labels = dollar) +
     xlab("Future Claims ('000s)") +
     ylab("Probability Density")
 ```
 
+Finally, we compare the two models simultaneously.
+
+```{r ppc_model_future_claim_estimation_comparison, echo=TRUE}
+plot_tbl <- bind_rows(
+    data_frame(label  = 'Weibull'
+              ,values = extract(model_sislob_stanfit)$ppc_EFC)
+   ,data_frame(label = 'Loglogistic'
+              ,values = extract(model_sislob_ll_stanfit)$ppc_EFC)
+)
+
+ggplot(plot_tbl) +
+    geom_vline(aes(xintercept = future_claims)) +
+    geom_density(aes(x = values, colour = label)) +
+    geom_density(aes(x = values, colour = label)) +
+    scale_x_continuous(labels = dollar) +
+    xlab("Future Claims ('000s)") +
+    ylab("Probability Density")
+```
+
+
+
 # Analysing A New Insurer
 
+It is difficult to assess exactly why the inferences for this set of triangles overestimate the total reserves required - it is possible the extremely high loss ratio from cohort year 1990 (a loss ratio of over 1.4).
+
+## Loss Curves for GRCODE 353
+
+We now repeat all of the above processes using an insurer where the loss ratios have less variance, Celina Mutual Group, GRCODE 353:
+
+```{r grcode_353_data, echo=TRUE}
+grcode353_tbl <- claimdata_tbl %>%
+    filter(lob == 'ppauto', grcode == 353)
+
+grcode353_snapshot_tbl <- grcode353_tbl %>%
+    filter(dev_year < 1998)
+```
+
+With this data we construct a loss triangle of the loss ratios.
+
+```{r create_grcode353_chainladder_lossratios, echo=TRUE}
+grcode353_snapshot_tbl %>%
+    select(acc_year, dev_lag, premium, loss_ratio) %>%
+    spread(dev_lag, loss_ratio) %>%
+    print.data.frame(digits = 2)
+```
+
+We also plot the curves.
+
+```{r create_grcode353_losscurve_plot, echo=TRUE}
+ggplot(grcode353_snapshot_tbl) +
+    geom_line(aes(x = dev_lag, y = loss_ratio, colour = as.character(acc_year))
+             ,size = 0.3) +
+    expand_limits(y = c(0, 1)) +
+    xlab('Development Time') +
+    ylab('Loss Ratio') +
+    ggtitle('Snapshot of Loss Curves for 10 Years of Loss Development'
+           ,subtitle = 'Private Passenger Auto Insurance for Celina Mutual (GRCODE 353)') +
+    guides(colour = guide_legend(title = 'Cohort Year'))
+```
+
+## Fit Weibull Stan Model on New Data
+
+Now that we have the data, we fit the model using the GRCODE 353.
+
+```{r model_sislob_grcode353_wb_fit, echo=TRUE, results='hide', warning=TRUE, message=FALSE}
+model_sislob_grcode353_wb_list <- create_stanfit(model_sislob_stanmodel
+                                                ,grcode353_snapshot_tbl
+                                                ,model_id = 1)
+
+model_sislob_grcode353_wb_stanfit <- model_sislob_grcode353_wb_list$stanfit
+```
+
+### Diagnostic Plots
+
+```{r model_sislob_grcode353_wb_bayesplot_rhat, echo=TRUE}
+model_sislob_grcode353_wb_stanfit %>%
+    rhat(pars = stanmodel_pars) %>%
+    mcmc_rhat(.) + yaxis_text()
+```
+
+Related to this is $n_{\text{eff}}$:
+
+```{r model_sislob_grcode353_wb_bayesplot_neff, echo=TRUE}
+model_sislob_grcode353_wb_stanfit %>%
+    neff_ratio(pars = stanmodel_pars) %>%
+    mcmc_neff(.) + yaxis_text()
+```
 
 
+
+```{r model_sislob_grcode353_wb_bayesplot_acf_omegatheta, echo=TRUE}
+model_sislob_grcode353_wb_stanfit %>%
+    extract(inc_warmup = FALSE, permuted = FALSE) %>%
+    mcmc_acf(pars = c('omega','theta'))
+```
+
+```{r model_sislob_grcode353_wb_bayesplot_acf_LR, echo=TRUE, fig.height=14}
+model_sislob_grcode353_wb_stanfit %>%
+    extract(inc_warmup = FALSE, permuted = FALSE) %>%
+    mcmc_acf(pars = c('mu_LR','LR[3]'))
+```
+
+Finally, we check the energy diagnostic plots to check they are similar.
+
+```{r model_sislob_grcode353_wb_energy_diagnostic, echo=TRUE}
+model_sislob_grcode353_wb_stanfit %>%
+    nuts_params %>%
+    mcmc_nuts_energy(binwidth = 1)
+```
+
+
+
+
+
+```{r model_sislob_grcode353_wb_bayesplot_traces, echo=TRUE}
+model_sislob_grcode353_wb_stanfit %>%
+    as.matrix %>%
+    mcmc_trace(regex_pars = c('theta','omega','LR\\[','mu_LR','sd_LR','loss_sd'))
+```
+
+
+### Parameter Values
+
+```{r model_sislob_grcode353_wb_bayesplot_parameters, echo=TRUE}
+model_sislob_grcode353_wb_stanfit %>%
+    extract(inc_warmup = FALSE, permuted = FALSE) %>%
+    mcmc_intervals(regex_pars = c('omega','theta','LR\\[', 'mu_LR','sd_LR','loss_sd'))
+```
+
+
+
+### Posterior Predictive Checks
+
+```{r ppc_model_grcode353_wb_future_claim_estimation, echo=TRUE}
+tckc <- grcode353_snapshot_tbl %>%
+    group_by(acc_year) %>%
+    filter(dev_lag == max(dev_lag)) %>%
+    .[["cum_loss"]] %>%
+    sum
+
+afc <- grcode353_tbl %>%
+    group_by(acc_year) %>%
+    filter(dev_lag == max(dev_lag)) %>%
+    .[["cum_loss"]] %>%
+    sum
+
+future_claims <- afc - tckc
+
+
+ggplot() +
+    geom_density(aes(x = extract(model_sislob_grcode353_wb_stanfit)$ppc_EFC)) +
+    geom_vline(aes(xintercept = future_claims), colour = 'red') +
+    scale_x_continuous(labels = dollar) +
+    xlab("Future Claims ('000s)") +
+    ylab("Probability Density")
+```
+
+
+
+## Fit Loglogistic Stan Model on New Data
+
+We fit the model using the GRCODE 353 data and the loglogistic growth functional form.
+
+```{r model_sislob_grcode353_ll_fit, echo=TRUE, results='hide', warning=TRUE, message=FALSE}
+model_sislob_grcode353_ll_list <- create_stanfit(model_sislob_stanmodel
+                                                ,grcode353_snapshot_tbl
+                                                ,model_id = 0)
+
+model_sislob_grcode353_ll_stanfit <- model_sislob_grcode353_ll_list$stanfit
+```
+
+### Diagnostic Plots
+
+```{r model_sislob_grcode353_ll_bayesplot_rhat, echo=TRUE}
+model_sislob_grcode353_ll_stanfit %>%
+    rhat(pars = stanmodel_pars) %>%
+    mcmc_rhat(.) + yaxis_text()
+```
+
+Related to this is $n_{\text{eff}}$:
+
+```{r model_sislob_grcode353_ll_bayesplot_neff, echo=TRUE}
+model_sislob_grcode353_ll_stanfit %>%
+    neff_ratio(pars = stanmodel_pars) %>%
+    mcmc_neff(.) + yaxis_text()
+```
+
+
+
+```{r model_sislob_grcode353_ll_bayesplot_acf_omegatheta, echo=TRUE}
+model_sislob_grcode353_ll_stanfit %>%
+    extract(inc_warmup = FALSE, permuted = FALSE) %>%
+    mcmc_acf(pars = c('omega','theta'))
+```
+
+```{r model_sislob_grcode353_ll_bayesplot_acf_LR, echo=TRUE, fig.height=14}
+model_sislob_grcode353_ll_stanfit %>%
+    extract(inc_warmup = FALSE, permuted = FALSE) %>%
+    mcmc_acf(pars = c('mu_LR','LR[3]'))
+```
+
+Finally, we check the energy diagnostic plots to check they are similar.
+
+```{r model_sislob_grcode353_ll_energy_diagnostic, echo=TRUE}
+model_sislob_grcode353_ll_stanfit %>%
+    nuts_params %>%
+    mcmc_nuts_energy(binwidth = 1)
+```
+
+
+
+
+
+```{r model_sislob_grcode353_ll_bayesplot_traces, echo=TRUE}
+model_sislob_grcode353_ll_stanfit %>%
+    as.matrix %>%
+    mcmc_trace(regex_pars = c('theta','omega','LR\\[','mu_LR','sd_LR','loss_sd'))
+```
+
+
+### Parameter Values
+
+```{r model_sislob_grcode353_ll_bayesplot_parameters, echo=TRUE}
+model_sislob_grcode353_ll_stanfit %>%
+    extract(inc_warmup = FALSE, permuted = FALSE) %>%
+    mcmc_intervals(regex_pars = c('omega','theta','LR\\[', 'mu_LR','sd_LR','loss_sd'))
+```
+
+
+
+
+
+### Posterior Predictive Checks
+
+```{r ppc_model_grcode353_ll_future_claim_estimation, echo=TRUE}
+tckc <- grcode353_snapshot_tbl %>%
+    group_by(acc_year) %>%
+    filter(dev_lag == max(dev_lag)) %>%
+    .[["cum_loss"]] %>%
+    sum
+
+afc <- grcode353_tbl %>%
+    group_by(acc_year) %>%
+    filter(dev_lag == max(dev_lag)) %>%
+    .[["cum_loss"]] %>%
+    sum
+
+future_claims <- afc - tckc
+
+
+ggplot() +
+    geom_density(aes(x = extract(model_sislob_grcode353_ll_stanfit)$ppc_EFC)) +
+    geom_vline(aes(xintercept = future_claims), colour = 'red') +
+    scale_x_continuous(labels = dollar) +
+    xlab("Future Claims ('000s)") +
+    ylab("Probability Density")
+```
+
+
+```{r ppc_grcode353_future_claim_estimation_comparison, echo=TRUE}
+plot_tbl <- bind_rows(
+    data_frame(label  = 'Weibull'
+              ,values = extract(model_sislob_grcode353_wb_stanfit)$ppc_EFC)
+   ,data_frame(label = 'Loglogistic'
+              ,values = extract(model_sislob_grcode353_ll_stanfit)$ppc_EFC)
+)
+
+ggplot(plot_tbl) +
+    geom_vline(aes(xintercept = future_claims)) +
+    geom_density(aes(x = values, colour = label)) +
+    geom_density(aes(x = values, colour = label)) +
+    scale_x_continuous(labels = dollar) +
+    xlab("Future Claims ('000s)") +
+    ylab("Probability Density")
+```
 
 # References
 
