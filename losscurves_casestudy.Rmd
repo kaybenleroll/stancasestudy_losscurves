@@ -31,10 +31,7 @@ knitr::opts_chunk$set(tidy  = FALSE
                      ,fig.width  = 11)
 
 library(tidyverse)
-library(data.table)
-library(dtplyr)
 library(scales)
-
 library(rstan)
 library(bayesplot)
 library(cowplot)
@@ -42,10 +39,13 @@ library(cowplot)
 
 options(width = 80L)
 
-#rstan_options(auto_write = TRUE)
-#options(mc.cores = parallel::detectCores())
-#theme_set(theme_grey())
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
 
+
+set.seed(42)
+
+stan_seed <- 42
 
 source("custom_functions.R")
 ```
@@ -90,13 +90,103 @@ We will work with two different functional forms for the growth
 behaviour of the loss curves: a 'Weibull' model and a 'loglogistic'
 model:
 
-$$
-g(t \, ; \; \theta, \omega) = \frac{t^\omega}{t^\omega + \theta^\omega} \;\; (\text{Weibull})
-$$
 
-$$
-g(t \, ; \; \theta, \omega) = 1 - \exp\left(-\left(\frac{t}{\theta}\right)^\omega\right) \;\; (\text{Log-logistic})
-$$
+\begin{align*}
+g(t \, ; \, \theta, \omega) &= \frac{t^\omega}{t^\omega + \theta^\omega}                  & (\text{Weibull}) \\
+g(t \, ; \, \theta, \omega) &= 1 - \exp\left(-\left(\frac{t}{\theta}\right)^\omega\right) & (\text{Log-logistic})
+\end{align*}
+
+
+
+## Weibull vs Log-logistic
+
+We have no prior preference for using either the Weibull or the
+Log-logistic function to model the growth of the losses.
+
+Visuals are important in this case so we first look at how the two
+functions differ in value for a given set of parameters.
+
+```{r weibull_loglogistic_comparison_plot, echo=FALSE}
+t_seq <- seq(0, 15, by = 0.01)
+
+loglogistic_func <- function(t, om, th) 1 - exp(-(t/th)^om)
+weibull_func     <- function(t, om, th) t^om / (t^om + th^om)
+
+
+weibull_tbl <- tibble(
+    label = 'Weibull'
+   ,t = t_seq
+   ,value = weibull_func(t_seq, 1.5, 2.2)
+)
+
+loglogistic_tbl <- tibble(
+    label = 'Log-logistic'
+   ,t = t_seq
+   ,value = loglogistic_func(t_seq, 1.5, 2.2)
+)
+
+plot_tbl <- bind_rows(weibull_tbl, loglogistic_tbl)
+
+
+ggplot(plot_tbl) +
+    geom_line(aes(x = t, y = value, colour = label)) +
+    xlab(expression(t)) +
+    ylab(expression("Growth Factor for (" * omega * "=1.5, " * theta * "=2.2)"))
+```
+
+There are references that the Weibull function tends to result in
+heavier losses in the model, but we have no empirical evidence for
+such a claim. It is true that for any given set of values for
+$(\omega, \theta)$ the log-logistic function plateaus at smaller
+levels of $t$, but this seems no guarantee to me: the model could just
+choose different values for the parameters to counteract this.
+
+To test for this, let us treat the Log-logistic function as the 'true'
+value and then try to fit a new set of parameters $(\omega, \theta)$
+to see how well a different set of parameters can match another.
+
+```{r fit_new_params_gf, echo=TRUE}
+ll_vals <- loglogistic_tbl$value
+
+new_param_func <- function(x) {
+    omega <- x[1]
+    theta <- x[2]
+
+    new_vals <- weibull_func(t_seq, omega, theta)
+
+    tot_ss <- sum((new_vals - ll_vals)^2)
+
+    return(tot_ss)
+}
+
+optim_params <- optim(c(1, 1), new_param_func)
+
+
+fittedweibull_tbl <- tibble(
+    label = 'Weibull (fitted)'
+   ,t = t_seq
+   ,value = weibull_func(t_seq
+                        ,optim_params$par[1]
+                        ,optim_params$par[2])
+)
+
+
+plot_tbl <- bind_rows(weibull_tbl
+                     ,loglogistic_tbl
+                     ,fittedweibull_tbl)
+
+ggplot(plot_tbl) +
+    geom_line(aes(x = t, y = value, colour = label)) +
+    xlab(expression(t)) +
+    ylab(expression("Functional Forms for Growth/Development Factors"))
+```
+
+We see that the Weibull growth function comes quite close to a
+log-logistic function so the choice should be a matter of preference
+in the main.
+
+That said, we shall try both and see if we see much difference between
+the two.
 
 
 # Load Data
@@ -112,8 +202,6 @@ rawdata_tbl <- data_files %>%
     bind_rows
 
 glimpse(rawdata_tbl)
-
-print(rawdata_tbl)
 ```
 
 ```{r reorganise_data, echo=TRUE}
@@ -127,13 +215,21 @@ claimdata_tbl <- rawdata_tbl %>%
     select(grcode, grname, lob, acc_year, dev_year, dev_lag, premium, cum_loss, loss_ratio)
 ```
 
+With the data in the format we will use in this analysis, we take a look at it
+in tabular form:
+
+```{r print_tabular_data, echo=TRUE}
+print(claimdata_tbl)
+```
+
+
 
 # Data Exploration
 
 In terms of modeling, we first confine ourselves to a single line of
 business 'ppauto' and ensure the data we work with is a snapshot in
-time. To ensure this, we filter out all data timestamped after 1997 and
-use the remaining data as our modelling dataset.
+time. We remove all data timestamped after 1997 and use the remaining data as
+our modelling dataset.
 
 Once we have fits and predictions, we use the later timestamped data
 as a way to validate the model.
@@ -220,8 +316,7 @@ We scale the losses by the total premium received for that cohort, the
 total losses is then given by
 
 $$
-\text{Total Loss}(t) = \text{Premium} \; \text{x} \;
-  \text{Final Loss Ratio} \; \text{x} \; \text{GF}(t)
+\text{Total Loss}(t) = \text{Premium} \times \text{Final Loss Ratio} \times \text{GF}(t)
 $$
 
 Each accounting year, $Y$, in the cohort gets its own value for the
@@ -234,16 +329,12 @@ $$
 
 where we have
 
-\begin{eqnarray}
-\mu(Y, t) &=& \text{Premium}(Y) \; \text{x} \; \text{LR}(Y)
-  \; \text{x} \; \text{GF}(t)  \\
-
-\sigma_Y &=& \text{Premium}(Y) \; \text{x} \; \sigma \\
-
-\text{LR}_Y &\sim& \text{Lognormal}(\mu_{\text{LR}}, \sigma_{\text{LR}}) \\
-
+\begin{eqnarray*}
+\mu(Y, t)       &=& \text{Premium}(Y) \times \text{LR}(Y) \times \text{GF}(t)  \\
+\sigma_Y        &=& \text{Premium}(Y) \times \sigma \\
+\text{LR}_Y     &\sim& \text{Lognormal}(\mu_{\text{LR}}, \sigma_{\text{LR}}) \\
 \mu_{\text{LR}} &\sim& \textbf{Normal}(0, 0.5)
-\end{eqnarray}
+\end{eqnarray*}
 
 All other parameters in the model, ($\sigma_{\text{LR}}$, $\omega$,
 $\theta$, $\sigma$), have lognormal priors to constrain them to be
@@ -255,93 +346,6 @@ of the growth curve - as this is determined by $\theta$ and $\omega$ -
 and the loss ratios for each cohort simultaneously.
 
 
-
-## Weibull vs Log-logistic
-
-We have no prior preference for using either the Weibull or the
-Log-logistic function to model the growth of the losses.
-
-Visuals are important in this case so we first look at how the two
-functions differ in value for a given set of parameters.
-
-```{r weibull_loglogistic_comparison_plot, echo=FALSE}
-t_seq <- seq(0, 15, by = 0.01)
-
-loglogistic_func <- function(t, om, th) 1 - exp(-(t/th)^om)
-weibull_func     <- function(t, om, th) t^om / (t^om + th^om)
-
-
-weibull_tbl <- tibble(label = 'Weibull'
-                     ,t = t_seq
-                     ,value = weibull_func(t_seq, 1.5, 2.2)
-                      )
-
-loglogistic_tbl <- tibble(label = 'Log-logistic'
-                         ,t = t_seq
-                         ,value = loglogistic_func(t_seq, 1.5, 2.2)
-                          )
-
-plot_tbl <- bind_rows(weibull_tbl, loglogistic_tbl)
-
-
-ggplot(plot_tbl) +
-    geom_line(aes(x = t, y = value, colour = label)) +
-    xlab(expression(t)) +
-    ylab(expression("Growth Factor for (" * omega * "=1.5, " * theta * "=2.2)"))
-```
-
-There are references that the Weibull function tends to result in
-heavier losses in the model, but we have no empirical evidence for
-such a claim. It is true that for any given set of values for
-$(\omega, \theta)$ the log-logistic function plateaus at smaller
-levels of $t$, but this seems no guarantee to me: the model could just
-choose different values for the parameters to counteract this.
-
-To test for this, let us treat the Log-logistic function as the 'true'
-value and then try to fit a new set of parameters $(\omega, \theta)$
-to see how well a different set of parameters can match another.
-
-```{r fit_new_params_gf, echo=TRUE}
-ll_vals <- loglogistic_tbl$value
-
-new_param_func <- function(x) {
-    omega <- x[1]
-    theta <- x[2]
-
-    new_vals <- weibull_func(t_seq, omega, theta)
-
-    tot_ss <- sum((new_vals - ll_vals)^2)
-
-    return(tot_ss)
-}
-
-optim_params <- optim(c(1, 1), new_param_func)
-
-
-fittedweibull_tbl <- tibble(label = 'Weibull (fitted)'
-                           ,t = t_seq
-                           ,value = weibull_func(t_seq
-                                                ,optim_params$par[1]
-                                                ,optim_params$par[2])
-                            )
-
-
-plot_tbl <- bind_rows(weibull_tbl
-                     ,loglogistic_tbl
-                     ,fittedweibull_tbl)
-
-ggplot(plot_tbl) +
-    geom_line(aes(x = t, y = value, colour = label)) +
-    xlab(expression(t)) +
-    ylab(expression("Growth Factor for Functional Forms"))
-```
-
-We see that the Weibull growth function comes quite close to a
-log-logistic function so the choice should be a matter of preference
-in the main.
-
-That said, we shall try both and see if we see much difference between
-the two.
 
 ## Configure Data
 
@@ -362,18 +366,18 @@ cohort_maxtime <- usedata_tbl %>%
     group_by(acc_year) %>%
     summarise(maxtime = max(dev_lag)) %>%
     arrange(acc_year) %>%
-    .[[2]]
+    .[['maxtime']]
 
 cohort_premium <- usedata_tbl %>%
     group_by(acc_year) %>%
     summarise(premium = unique(premium)) %>%
-    .[[2]]
+    .[['premium']]
 
 t_values <- usedata_tbl %>%
     select(dev_lag) %>%
     arrange(dev_lag) %>%
     unique %>%
-    .[[1]]
+    .[['dev_lag']]
 
 standata_lst <- list(
     growthmodel_id = 1   # Use weibull rather than loglogistic
@@ -394,7 +398,7 @@ The full Stan file is shown below:
 ```{r model_sislob_stanfile, comment="", echo=TRUE}
 stan_file <- "losscurves_sislob.stan"
 
-cat(readLines(stan_file), sep = "\n")
+cat(read_lines(stan_file), sep = "\n")
 ```
 
 There are a few points of note about this Stan model worth highlighting here.
@@ -417,12 +421,18 @@ distributions as an alternative.
 
 ### Prior for `mu_LR`
 
-Because we use lognormals for the underlying losses, we want the prior for the mean of the distribution to take both positive and negative values, and thus use a normal distribution for $\mu_{\text{LR}}, with mean 0 and std dev 0.5.
+Because we use lognormals for the underlying losses, we want the prior
+for the mean of the distribution to take both positive and negative
+values, and thus use a normal distribution for $\mu_{\text{LR}}, with
+mean 0 and std dev 0.5.
 
 
 ### The `generated quantities` block
 
-We use the `generated quantities` block to facilitate both posterior predictive checks and to also make loss reserving projections across all the cohorts. The use and analysis of the output of this block is discussed in a later section.
+We use the `generated quantities` block to facilitate both posterior
+predictive checks and to also make loss reserving projections across
+all the cohorts. The use and analysis of the output of this block is
+discussed in a later section.
 
 ## Fitting the Stan Model
 
@@ -438,10 +448,12 @@ model_sislob_stanfit <- sampling(
    ,data   = standata_lst
    ,iter   = 500
    ,chains = 8
+   ,seed   = stan_seed
 )
 ```
 
-The Stan sample contains no divergent transitions, so that is a good start.
+The Stan sample contains no divergent transitions, so that is a good
+start.
 
 ## Sampler Diagnostic Plots
 
@@ -465,9 +477,11 @@ ggplot(model_sislob_monitor_tbl) +
     ylab(expression(hat(italic(R))))
 ```
 
-The $\hat{R}$ values for the parameter appear to be in or around 1, so that is encouraging.
+The $\hat{R}$ values for the parameter appear to be in or around 1, so
+that is encouraging.
 
-It is also worth checking the size of `n_eff` for each of the variables:
+It is also worth checking the size of `n_eff` for each of the
+variables:
 
 ```{r model_sislob_neff_plots, echo=TRUE}
 ggplot(model_sislob_monitor_tbl) +
@@ -477,6 +491,15 @@ ggplot(model_sislob_monitor_tbl) +
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
     xlab("Parameter") +
     ylab(paste0("Effective Sample Count (n_eff)"))
+```
+
+The package `bayesplot` provides some simple diagnostic plots for
+fits, so we look at those.
+
+```{r model1_bayesplot_rhat, echo=TRUE}
+model_sislob_stanfit %>%
+    rhat(pars = c('omega','theta','LR','mu_LR','sd_LR','loss_sd')) %>%
+    mcmc_rhat
 ```
 
 Check the traces. There are a large number of parameters in this model
@@ -1150,5 +1173,7 @@ ggplot(plot_tbl) +
 # References
 
 * Morris, J. (2016)  Hierarchical Compartmental Models for Loss Reserving
-  _Casualty Actuarial Society E-Forum, Summer 2016_ [ [pdf]
-  (http://www.casact.org/pubs/forum/16sforum/Morris.pdf) ]
+  _Casualty Actuarial Society E-Forum, Summer 2016_ [pdf](http://www.casact.org/pubs/forum/16sforum/Morris.pdf)
+  
+* Guszcza, J. C. (2008) Hierarchical Growth Curve Models for Loss Reserving
+  _CAS Forum 2008: Fall_, [pdf](https://www.casact.org/pubs/forum/08fforum/7Guszcza.pdf)

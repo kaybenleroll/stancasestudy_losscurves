@@ -2,6 +2,8 @@
 .RData
 .Rhistory
 
+*.rds
 
 *_cache/
 *_files/
+.Rproj.user
