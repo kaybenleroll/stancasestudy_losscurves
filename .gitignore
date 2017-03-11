@@ -3,7 +3,9 @@
 .Rhistory
 
 *.rds
-
 *_cache/
 *_files/
 .Rproj.user
+packrat/lib/*
+packrat/src/*
+packrat/lib*/

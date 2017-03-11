@@ -20,7 +20,8 @@ read_claim_datafile <- function(path, progress = FALSE) {
 
 
 create_stanfit <- function(stan_model, usedata_tbl, model_id
-                          ,chain_count = 8, iter_count = 500) {
+                          ,chain_count = 8, iter_count = 500
+                          ,stan_seed = stan_seed) {
     cohort_maxtime <- usedata_tbl %>%
         group_by(acc_year) %>%
         summarise(maxtime = max(dev_lag)) %>%
@@ -53,9 +54,10 @@ create_stanfit <- function(stan_model, usedata_tbl, model_id
 
     model_stanfit <- sampling(
         object = model_sislob_stanmodel
-        ,data   = standata_lst
-        ,iter   = iter_count
-        ,chains = chain_count
+       ,data   = standata_lst
+       ,iter   = iter_count
+       ,chains = chain_count
+       ,seed   = stan_seed
     )
 
     return(list(
