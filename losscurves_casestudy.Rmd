@@ -628,7 +628,8 @@ The `bayesplot` package also provides some functionality for plotting the parame
 ```{r plot_bayesplot_parameters, echo=TRUE}
 weibull_param_plot <- model_sislob_stanfit %>%
     extract(inc_warmup = FALSE, permuted = FALSE) %>%
-    mcmc_intervals(regex_pars = c('omega','theta','LR\\[', 'mu_LR','sd_LR','loss_sd'))
+    mcmc_intervals(regex_pars = c('omega','theta','LR\\[', 'mu_LR','sd_LR','loss_sd')) +
+        expand_limits(x = c(-0.5, 2.5))
 
 plot(weibull_param_plot)
 ```
@@ -873,45 +874,22 @@ through the use of the various diagnostic tools employed before.
 
 ## Diagnostic Plots
 
-We first check $\hat{R}$.
+Rather than go through a comprehensive list of diagnostic plots, we look at
+a smaller selection of them for the interests of brevity.
 
 ```{r model_sislob_ll_bayesplot_rhat, echo=TRUE}
-model_sislob_ll_stanfit %>%
+rhat_ll_plot <- model_sislob_ll_stanfit %>%
     rhat(pars = stanmodel_pars) %>%
     mcmc_rhat(.) + yaxis_text()
-```
 
-We then check the related quantity of effective sample size, $n_{\text{eff}}$:
-
-```{r model_sislob_ll_bayesplot_neff, echo=TRUE}
-model_sislob_ll_stanfit %>%
-    neff_ratio(pars = stanmodel_pars) %>%
-    mcmc_neff(.) + yaxis_text()
-```
-
-The above plots do not reveal anything of concern so we look at the ACF plots
-for the parameters, as before.
-
-```{r model_sislob_ll_bayesplot_acf_omegatheta, echo=TRUE}
-model_sislob_ll_stanfit %>%
-    extract(inc_warmup = FALSE, permuted = FALSE) %>%
-    mcmc_acf(pars = c('omega','theta'))
-```
-
-```{r model_sislob_ll_bayesplot_acf_LR, echo=TRUE, fig.height=14}
-model_sislob_ll_stanfit %>%
-    extract(inc_warmup = FALSE, permuted = FALSE) %>%
-    mcmc_acf(pars = c('mu_LR','LR[3]'))
-```
-
-We check that the energy diagnostic plots show us similar distributions.
-
-```{r model_sislob_ll_energy_diagnostic, echo=TRUE}
-model_sislob_ll_stanfit %>%
+energy_ll_plot <- model_sislob_ll_stanfit %>%
     nuts_params %>%
     mcmc_nuts_energy(binwidth = 1)
-```
 
+plot_grid(rhat_ll_plot
+         ,energy_ll_plot
+         ,nrow = 2)
+```
 
 Finally we look at the parameter traceplots to look for signs that the chains
 have not mixed.
@@ -935,16 +913,24 @@ saw before.
 ```{r model_sislob_ll_bayesplot_parameters, echo=TRUE}
 loglogistic_param_plot <- model_sislob_ll_stanfit %>%
     extract(inc_warmup = FALSE, permuted = FALSE) %>%
-    mcmc_intervals(regex_pars = c('omega','theta','LR\\[', 'mu_LR','sd_LR','loss_sd'))
+    mcmc_intervals(., regex_pars = c('omega','theta','LR\\[', 'mu_LR','sd_LR','loss_sd')) +
+        expand_limits(x = c(-0.5, 2.5))
 
 plot_grid(weibull_param_plot
          ,loglogistic_param_plot
          ,nrow = 2)
 ```
 
+The important parameters are similar across the two functional forms, though
+$\omega$ and $\theta$ have different effects in the two forms.
+
+The important distinction is when we look at the posterior predictive checks.
 
 
 ## Posterior Predictive Checks
+
+Finally we look at some posterior predictive checks to see if switching to
+the log-logistic functional form improves on the Weibull.
 
 ```{r ppc_model_ll_future_claim_estimation, echo=TRUE}
 tckc <- carrier_snapshot_tbl %>%
@@ -995,11 +981,14 @@ ggplot(plot_tbl) +
 
 # Analysing A New Insurer
 
-It is difficult to assess exactly why the inferences for this set of triangles overestimate the total reserves required - it is possible the extremely high loss ratio from cohort year 1990 (a loss ratio of over 1.4).
+It is difficult to assess exactly why the inferences for this set of triangles
+overestimate the total reserves required - it is possible the extremely high
+loss ratio from cohort year 1990 (a loss ratio of over 1.4).
 
 ## Loss Curves for GRCODE 353
 
-We now repeat all of the above processes using an insurer where the loss ratios have less variance, Celina Mutual Group, GRCODE 353:
+We now repeat all of the above processes using an insurer where the loss ratios
+have less variance, Celina Mutual Group, GRCODE 353:
 
 ```{r grcode_353_data, echo=TRUE}
 grcode353_tbl <- claimdata_tbl %>%
@@ -1045,46 +1034,28 @@ model_sislob_grcode353_wb_list <- create_stanfit(model_sislob_stanmodel
 model_sislob_grcode353_wb_stanfit <- model_sislob_grcode353_wb_list$stanfit
 ```
 
+As before, we first check the output to ensure that our sample does not
+contain any obvious biases.
+
 ### Diagnostic Plots
 
+Once again we provide a sample of the diagnostic plots:
+
 ```{r model_sislob_grcode353_wb_bayesplot_rhat, echo=TRUE}
-model_sislob_grcode353_wb_stanfit %>%
+newins_rhat_plot <- model_sislob_grcode353_wb_stanfit %>%
     rhat(pars = stanmodel_pars) %>%
     mcmc_rhat(.) + yaxis_text()
-```
 
-Related to this is $n_{\text{eff}}$:
-
-```{r model_sislob_grcode353_wb_bayesplot_neff, echo=TRUE}
-model_sislob_grcode353_wb_stanfit %>%
-    neff_ratio(pars = stanmodel_pars) %>%
-    mcmc_neff(.) + yaxis_text()
-```
-
-
-
-```{r model_sislob_grcode353_wb_bayesplot_acf_omegatheta, echo=TRUE}
-model_sislob_grcode353_wb_stanfit %>%
-    extract(inc_warmup = FALSE, permuted = FALSE) %>%
-    mcmc_acf(pars = c('omega','theta'))
-```
-
-```{r model_sislob_grcode353_wb_bayesplot_acf_LR, echo=TRUE, fig.height=14}
-model_sislob_grcode353_wb_stanfit %>%
-    extract(inc_warmup = FALSE, permuted = FALSE) %>%
-    mcmc_acf(pars = c('mu_LR','LR[3]'))
-```
-
-Finally, we check the energy diagnostic plots to check they are similar.
-
-```{r model_sislob_grcode353_wb_energy_diagnostic, echo=TRUE}
-model_sislob_grcode353_wb_stanfit %>%
+newins_energy_plot <- model_sislob_grcode353_wb_stanfit %>%
     nuts_params %>%
     mcmc_nuts_energy(binwidth = 1)
+
+plot_grid(newins_rhat_plot
+         ,newins_energy_plot
+         ,nrow = 2)
 ```
 
-
-
+All of the above look reasonable, so on to the traceplots.
 
 
 ```{r model_sislob_grcode353_wb_bayesplot_traces, echo=TRUE}
@@ -1096,15 +1067,26 @@ model_sislob_grcode353_wb_stanfit %>%
 
 ### Parameter Values
 
+Having fit the model and checked the samples, we now compare the inferences
+on the new dataset against the inferences from the other dataset.
+
 ```{r model_sislob_grcode353_wb_bayesplot_parameters, echo=TRUE}
-model_sislob_grcode353_wb_stanfit %>%
+gr353_wb_param_plot <- model_sislob_grcode353_wb_stanfit %>%
     extract(inc_warmup = FALSE, permuted = FALSE) %>%
-    mcmc_intervals(regex_pars = c('omega','theta','LR\\[', 'mu_LR','sd_LR','loss_sd'))
+    mcmc_intervals(., regex_pars = c('omega','theta','LR\\[', 'mu_LR','sd_LR','loss_sd')) +
+        expand_limits(x = c(-0.5, 2.5))
+
+plot_grid(weibull_param_plot
+         ,gr353_wb_param_plot
+         ,nrow = 2)
 ```
 
 
 
 ### Posterior Predictive Checks
+
+As before, we run some posterior predictive checks to see if we see similar
+patterns as before.
 
 ```{r ppc_model_grcode353_wb_future_claim_estimation, echo=TRUE}
 tckc <- grcode353_snapshot_tbl %>%
@@ -1132,7 +1114,7 @@ ggplot() +
 
 
 
-## Fit Loglogistic Stan Model on New Data
+### Fit Loglogistic Stan Model on New Data
 
 We fit the model using the GRCODE 353 data and the loglogistic growth functional form.
 
@@ -1145,68 +1127,6 @@ model_sislob_grcode353_ll_list <- create_stanfit(model_sislob_stanmodel
 model_sislob_grcode353_ll_stanfit <- model_sislob_grcode353_ll_list$stanfit
 ```
 
-### Diagnostic Plots
-
-```{r model_sislob_grcode353_ll_bayesplot_rhat, echo=TRUE}
-model_sislob_grcode353_ll_stanfit %>%
-    rhat(pars = stanmodel_pars) %>%
-    mcmc_rhat(.) + yaxis_text()
-```
-
-Related to this is $n_{\text{eff}}$:
-
-```{r model_sislob_grcode353_ll_bayesplot_neff, echo=TRUE}
-model_sislob_grcode353_ll_stanfit %>%
-    neff_ratio(pars = stanmodel_pars) %>%
-    mcmc_neff(.) + yaxis_text()
-```
-
-
-
-```{r model_sislob_grcode353_ll_bayesplot_acf_omegatheta, echo=TRUE}
-model_sislob_grcode353_ll_stanfit %>%
-    extract(inc_warmup = FALSE, permuted = FALSE) %>%
-    mcmc_acf(pars = c('omega','theta'))
-```
-
-```{r model_sislob_grcode353_ll_bayesplot_acf_LR, echo=TRUE, fig.height=14}
-model_sislob_grcode353_ll_stanfit %>%
-    extract(inc_warmup = FALSE, permuted = FALSE) %>%
-    mcmc_acf(pars = c('mu_LR','LR[3]'))
-```
-
-Finally, we check the energy diagnostic plots to check they are similar.
-
-```{r model_sislob_grcode353_ll_energy_diagnostic, echo=TRUE}
-model_sislob_grcode353_ll_stanfit %>%
-    nuts_params %>%
-    mcmc_nuts_energy(binwidth = 1)
-```
-
-
-
-
-
-```{r model_sislob_grcode353_ll_bayesplot_traces, echo=TRUE}
-model_sislob_grcode353_ll_stanfit %>%
-    as.matrix %>%
-    mcmc_trace(regex_pars = c('theta','omega','LR\\[','mu_LR','sd_LR','loss_sd'))
-```
-
-
-### Parameter Values
-
-```{r model_sislob_grcode353_ll_bayesplot_parameters, echo=TRUE}
-model_sislob_grcode353_ll_stanfit %>%
-    extract(inc_warmup = FALSE, permuted = FALSE) %>%
-    mcmc_intervals(regex_pars = c('omega','theta','LR\\[', 'mu_LR','sd_LR','loss_sd'))
-```
-
-
-
-
-
-### Posterior Predictive Checks
 
 ```{r ppc_model_grcode353_ll_future_claim_estimation, echo=TRUE}
 tckc <- grcode353_snapshot_tbl %>%
