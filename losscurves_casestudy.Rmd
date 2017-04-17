@@ -59,17 +59,16 @@ source("custom_functions.R")
 Loss curves are a standard actuarial technique for helping insurance
 companies assess the amount of reserve capital they need to keep on
 hand to cover claims from a line of business. Claims made and reported
-for a given accounting period are tracked seperately over time so that
-more recent periods with less claim development can use the behaviour
-of policies from earlier periods of time to help predict what total
-claims will be.
+for a given accounting period are tracked seperately over time. This
+enables the use of historical patterns of claim development to predict
+expected total claims for newer policies.
 
-Total claim amounts from a simple accounting period are usually laid
-out in a single line with each column showing the total claim amount
+Total claim amounts from a simple accounting period are laid
+out in a single row of a table, each column showing the total claim amount
 after that period of time. Subsequent accounting periods have less
-development and so the data takes a triangular shape, hence the term
+development, so the data takes a triangular shape - hence the term
 'loss triangles'. Using previous patterns, data in the upper part of
-the triangle can be used to predict values in the unknown lower
+the triangle is used to predict values in the unknown lower
 triangle.
 
 The `ChainLadder` package provides functionality to generate and use
@@ -81,7 +80,7 @@ function of time, and use the model to estimate the parameters which
 determine the shape and form of this growth. We also use the sampler
 to estimate the values of the "ultimate loss ratio", i.e. the ratio of
 the total claims on an accounting period to the total premium received
-to write those policies.
+to write those policies. We treat each accounting period as a cohort.
 
 
 ## Overview
@@ -312,8 +311,9 @@ policies as a function of time. As mentioned, we use two different
 growth functions, the Weibull and the Log-Logistic. Both functions
 have two parameters which we label $\theta$ and $\omega$.
 
-We scale the losses by the total premium received for that cohort, the
-total losses is then given by
+As each cohort year has different volumes of business, we scale the
+losses by the total premium received for that cohort, allowing us to
+more directly compare the cohorts. The total losses is then given by
 
 $$
 \text{Total Loss}(t) = \text{Premium} \times \text{Final Loss Ratio} \times \text{GF}(t)
@@ -331,6 +331,7 @@ where we have
 
 \begin{eqnarray*}
 \mu(Y, t)       &=& \text{Premium}(Y) \times \text{LR}(Y) \times \text{GF}(t)  \\
+\text{GF}(t)    &=& \text{growth function of } t \\
 \sigma_Y        &=& \text{Premium}(Y) \times \sigma \\
 \text{LR}_Y     &\sim& \text{Lognormal}(\mu_{\text{LR}}, \sigma_{\text{LR}}) \\
 \mu_{\text{LR}} &\sim& \text{Normal}(0, 0.5)
@@ -338,8 +339,11 @@ where we have
 
 All other parameters in the model, ($\sigma_{\text{LR}}$, $\omega$,
 $\theta$, $\sigma$), have lognormal priors to constrain them to be
-positive. The hyper-parameters for the lognormal priors are relatively
-weak.
+positive.
+
+The priors on the hyper-parameters are weakly infomative - chosen to
+cover the feasiable range of parameter values with a lot of
+uncertainty.
 
 By setting the model up in this way, Stan can fit for both the shape
 of the growth curve - as this is determined by $\theta$ and $\omega$ -
@@ -423,7 +427,7 @@ distributions as an alternative.
 
 Because we use lognormals for the underlying losses, we want the prior
 for the mean of the distribution to take both positive and negative
-values, and thus use a normal distribution for $\mu_{\text{LR}}, with
+values, and thus use a normal distribution for $\mu_{\text{LR}}$, with
 mean 0 and std dev 0.5.
 
 
@@ -577,7 +581,8 @@ exploring the posterior probability space.
 ```{r model_sislob_energy_diagnostic, echo=TRUE}
 model_sislob_stanfit %>%
     nuts_params %>%
-    mcmc_nuts_energy(binwidth = 1)
+    mcmc_nuts_energy(binwidth = 1) +
+        facet_wrap(~Chain, ncol = 2)
 ```
 
 Once again, the diagnostics are not flagging any potential issues with the
@@ -623,7 +628,8 @@ ggplot(plotdata_tbl) +
     ylab("Value")
 ```
 
-The `bayesplot` package also provides some functionality for plotting the parameters values.
+The `bayesplot` package also provides some functionality for plotting the
+parameters values.
 
 ```{r plot_bayesplot_parameters, echo=TRUE}
 weibull_param_plot <- model_sislob_stanfit %>%
