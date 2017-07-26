@@ -196,8 +196,10 @@ We load the Schedule P loss data from casact.org.
 ### File was downloaded from http://www.casact.org/research/reserve_data/ppauto_pos.csv
 data_files <- dir("data/", pattern = "\\.csv", full.names = TRUE)
 
+data_cols <- cols(GRCODE = col_character())
+
 rawdata_tbl <- data_files %>%
-    map(read_claim_datafile) %>%
+    map(read_claim_datafile, col_type = data_cols) %>%
     bind_rows
 
 glimpse(rawdata_tbl)
@@ -742,7 +744,7 @@ level of variance in our output.
 
 
 
-# Posterior Predictive Checks
+## Posterior Predictive Checks
 
 A very important part of all this is getting a sense of the aspects of
 the data that the model is not capturing well. A recommended method
@@ -757,7 +759,7 @@ doing at modelling those idiosyncracies in the data.
 
 We will look at a number of PPCs for the single insurer dataset here.
 
-## Range of Loss Ratios
+### Range of Loss Ratios
 
 We first investigate how well the model is doing at capturing the
 range of Loss Ratios observed in the data: are the largest and
@@ -802,7 +804,7 @@ This is not hugely surprising though, as we have only ten accounting
 years in the dataset and have seen a decent spread of those already in
 the dataset.
 
-## Aggregate Reserve Amounts
+### Aggregate Reserve Amounts
 
 While it is useful to break down the loss curves into these different
 cohorts and model each curve separately, from the point of view of an
@@ -860,7 +862,14 @@ ggplot() +
 ```
 
 
-# The Log-logistic Growth Model
+# Altenative Models
+
+With the basic model built and validated, we now want to explore alternatives.
+We want to look at different functional forms for the development patterns and
+try out different insurer triangles.
+
+
+## The Log-logistic Growth Model
 
 We now repeat all of the above work, using the log-logistic functional form for
 the growth factors instead.
@@ -875,43 +884,11 @@ model_sislob_ll_list <- create_stanfit(model_sislob_stanmodel, usedata_tbl
 model_sislob_ll_stanfit <- model_sislob_ll_list$stanfit
 ```
 
-We now repeat the previous exercise of checking that the sample has converged
-through the use of the various diagnostic tools employed before.
-
-## Diagnostic Plots
-
-Rather than go through a comprehensive list of diagnostic plots, we look at
-a smaller selection of them for the interests of brevity.
-
-```{r model_sislob_ll_bayesplot_rhat, echo=TRUE}
-rhat_ll_plot <- model_sislob_ll_stanfit %>%
-    rhat(pars = stanmodel_pars) %>%
-    mcmc_rhat(.) + yaxis_text()
-
-energy_ll_plot <- model_sislob_ll_stanfit %>%
-    nuts_params %>%
-    mcmc_nuts_energy(binwidth = 1)
-
-plot_grid(rhat_ll_plot
-         ,energy_ll_plot
-         ,nrow = 2)
-```
-
-Finally we look at the parameter traceplots to look for signs that the chains
-have not mixed.
-
-```{r model_sislob_ll_bayesplot_traces, echo=TRUE}
-model_sislob_ll_stanfit %>%
-    as.matrix %>%
-    mcmc_trace(regex_pars = c('theta','omega','LR\\[','mu_LR','sd_LR','loss_sd'))
-```
-
-The chains appear to have mixed, none of the diagnostics have alerted us to
-anything and there are no divergent transitions, so we can proceed with
-checking the model.
+Repeating the previous work on checking diagnostics, our sample appears to be
+well-behaved and we can proceed with the analysis using the output.
 
 
-## Parameter Values
+### Parameter Values
 
 We look at the parameter outputs, getting broadly similar plots to those we
 saw before.
@@ -933,7 +910,7 @@ $\omega$ and $\theta$ have different effects in the two forms.
 The important distinction is when we look at the posterior predictive checks.
 
 
-## Posterior Predictive Checks
+### Posterior Predictive Checks
 
 Finally we look at some posterior predictive checks to see if switching to
 the log-logistic functional form improves on the Weibull.
@@ -985,13 +962,14 @@ ggplot(plot_tbl) +
 
 
 
-# Analysing A New Insurer
+## Analysing A New Insurer
 
 It is difficult to assess exactly why the inferences for this set of triangles
 overestimate the total reserves required - it is possible the extremely high
 loss ratio from cohort year 1990 (a loss ratio of over 1.4).
 
-## Loss Curves for GRCODE 353
+
+### Loss Curves for GRCODE 353
 
 We now repeat all of the above processes using an insurer where the loss ratios
 have less variance, Celina Mutual Group, GRCODE 353:
@@ -1027,7 +1005,7 @@ ggplot(grcode353_snapshot_tbl) +
     guides(colour = guide_legend(title = 'Cohort Year'))
 ```
 
-## Fit Weibull Stan Model on New Data
+### Fit Weibull Stan Model on New Data
 
 Now that we have the data, we fit the model using the GRCODE 353.
 
@@ -1040,38 +1018,8 @@ model_sislob_grcode353_wb_list <- create_stanfit(model_sislob_stanmodel
 model_sislob_grcode353_wb_stanfit <- model_sislob_grcode353_wb_list$stanfit
 ```
 
-As before, we first check the output to ensure that our sample does not
-contain any obvious biases.
 
-### Diagnostic Plots
-
-Once again we provide a sample of the diagnostic plots:
-
-```{r model_sislob_grcode353_wb_bayesplot_rhat, echo=TRUE}
-newins_rhat_plot <- model_sislob_grcode353_wb_stanfit %>%
-    rhat(pars = stanmodel_pars) %>%
-    mcmc_rhat(.) + yaxis_text()
-
-newins_energy_plot <- model_sislob_grcode353_wb_stanfit %>%
-    nuts_params %>%
-    mcmc_nuts_energy(binwidth = 1)
-
-plot_grid(newins_rhat_plot
-         ,newins_energy_plot
-         ,nrow = 2)
-```
-
-All of the above look reasonable, so on to the traceplots.
-
-
-```{r model_sislob_grcode353_wb_bayesplot_traces, echo=TRUE}
-model_sislob_grcode353_wb_stanfit %>%
-    as.matrix %>%
-    mcmc_trace(regex_pars = c('theta','omega','LR\\[','mu_LR','sd_LR','loss_sd'))
-```
-
-
-### Parameter Values
+#### Parameter Values
 
 Having fit the model and checked the samples, we now compare the inferences
 on the new dataset against the inferences from the other dataset.
@@ -1089,7 +1037,7 @@ plot_grid(weibull_param_plot
 
 
 
-### Posterior Predictive Checks
+#### Posterior Predictive Checks
 
 As before, we run some posterior predictive checks to see if we see similar
 patterns as before.
@@ -1127,7 +1075,7 @@ We fit the model using the GRCODE 353 data and the loglogistic growth functional
 ```{r model_sislob_grcode353_ll_fit, echo=TRUE, results='hide', warning=TRUE, message=FALSE}
 model_sislob_grcode353_ll_list <- create_stanfit(model_sislob_stanmodel
                                                 ,grcode353_snapshot_tbl
-                                                ,model_id = 0
+                                                ,model_id  = 0
                                                 ,stan_seed = stan_seed)
 
 model_sislob_grcode353_ll_stanfit <- model_sislob_grcode353_ll_list$stanfit
@@ -1176,7 +1124,17 @@ ggplot(plot_tbl) +
     ylab("Probability Density")
 ```
 
-# References
+
+
+# References and SessionInfo
+
+This report was created using the following packages:
+
+```{r session_info, echo=TRUE}
+sessionInfo()
+```
+
+
 
 * Morris, J. (2016)  Hierarchical Compartmental Models for Loss Reserving
   _Casualty Actuarial Society E-Forum, Summer 2016_ [pdf](http://www.casact.org/pubs/forum/16sforum/Morris.pdf)

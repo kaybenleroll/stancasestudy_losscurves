@@ -1,0 +1,167 @@
+That looks great.  Does anyone who knows anything about
+R or insurance want to take a look?  I can look it over and
+give you feedback on the Stan, but that's about it.
+
+One thing I noticed off the bat is that your functions
+
+  real growth_factor_loglogistic(real t, real omega, real theta) {
+    real factor;
+
+    factor = ((t^omega) / (t^omega + theta^omega));
+
+    return(factor);
+  }
+
+are more easily written as one-liners
+
+
+  real growth_factor_loglogistic(real t, real omega, real theta) {
+    return (t^omega) / (t^omega + theta^omega);
+  }
+
+but it's better not to repeat computations for efficiency, so
+that should be:
+
+
+  real growth_factor_loglogistic(real t, real omega, real theta) {
+    real pow_t_omega = t^omega;
+    return pow_t_omega / (pow_t_omega + theta^omega);
+  }
+
+
+You don't need the parens around the return or extra parens
+for assignment.
+
+This:
+
+for(i in 1:n_data) {
+    loss[i] ~ normal(loss_mean[cohort_id[i], t_idx[i]],
+                     premium[cohort_id[i]] * loss_sd);
+}
+
+would be more efficient vectorized:
+
+  vector[n_data] lm;
+  for (i in 1:n_data)
+    lm[i] = loss_mean[cohort_id[i], t_idx[i]];
+  loss ~ normal(loss_mean, loss_sd * premium[cohort_id]);
+
+where premium needs to be a vector.  It's actually even more efficient
+if size(premium) << n_data to just use
+
+  (loss_sd * premium)[cohort_id]
+
+so the multiplication applies to the smaller vector.
+
+This
+
+for(i in 1:n_cohort) {
+    for(j in 1:n_time) {
+      loss_sample[i, j] = LR[i] * premium[i] * gf[t_idx[j]];
+      step_ratio [i, j] = 1.0;
+    }
+  }
+
+can also be vectorized in the inner loop:
+
+for (i in 1:n_cohort)
+  loss_sample[i] = LR[i] * premium[i] * gf[t_idx];
+
+and that variable step_ratio gets defined as 1 and then most
+of the values redefined.  You can use rep_vector(1.0, N) and
+rep_row_vector(1.0, N) to create vectors of row vectors filled with
+the value 1.
+
+loss_mean is also getting assigned and reassigned.  the initial
+assignments can be filled, but better even to not redundantly
+assign.
+
+This can also be vectorized:
+
+ for(i in 1:n_cohort) {
+      tempmin[i] = LR[i];
+      tempmax[i] = LR[i];
+    }
+
+tempmin = LR;
+tempmax = LR;
+
+but you don't need to do that assignment before taking min and
+max---none of the operations in Stan modify their arguments.
+
+I don't know if you were getting divergent translations, but it
+can be useful to use the non-centered parameterization for coefficients
+with hierarchical priors.
+
+
+  real<lower=0> LR[n_cohort];
+
+  real mu_LR;
+  real<lower=0> sd_LR;
+
+
+  LR ~ lognormal(mu_LR, sd_LR);
+
+It's a little trickier with lognormals than normals, but the idea's
+the same.
+
+Finally, you can compress this:
+
+ if(growthmodel_id == 1) {
+      gf[i] = growth_factor_weibull    (t_value[i], omega, theta);
+    } else {
+      gf[i] = growth_factor_loglogistic(t_value[i], omega, theta);
+    }
+
+to just
+
+gf[i] = growthmodel_id == 1
+      ? growth_factor_weibull(t_value[i], omega, theta)
+      : growth_factor_loglogistic(t_value[i], omega, theta);
+
+The conditional operator only evaluates its arguments if the
+branch evaluates to true.
+
+- Bob
+
+
+In 2.15 (we're working on the release now), you'll be able to
+write:
+
+  matrix[3, 2] x = [ [11, 12],
+                     [21, 22],
+                     [31, 32] ];
+
+where the numbering matches the indexing.
+
+For now, you can assign x[1], x[2], and x[3] to row vectors
+of size 2 and you can assign x[ , 1] and x[, 2] to column
+vectors of size 3.
+
+
+
+As to the text it would have helped me to lay the data
+out more exactly up front.  It's the usual bottleneck I have
+in getting started understanding these notebooks.
+
+Also, why are we working with two different growth curves?
+Are we going to evaluate models involving one versus the other?
+
+As to comparisons, I'd prefer to see more posterior predictive
+checks or fake-data fit checks and fewer (if any) traceplots or
+R-hat plots.  You can just mention they're all within expected
+tolerances (R-hat << 1.05 for multiple diffuse initializations
+and high enough n_eff for whatever your application is) and
+that will cut down on a lot of the clutter.
+
+Captions on figures help a lot if I just want to browse.
+
+You never mention the references in the text.  If these
+models are all well known, a pointer up front to the textbook
+and a hint that you'll use the same terminology is a great
+help.
+
+I find overlaid histograms hard to decode, but Michael really
+likes them---I see you're using a clever contrastive scheme, which
+is an improvement, but I still find it hard to read.
+

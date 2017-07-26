@@ -2,11 +2,11 @@
 get_character_index <- function(x) match(x, sort(unique(x)))
 
 
-read_claim_datafile <- function(path, progress = FALSE) {
+read_claim_datafile <- function(path, col_type = cols(), progress = FALSE) {
     lob <- path %>% basename
     lob <- gsub("_pos\\.csv", "", lob)
 
-    data_tbl <- read_csv(path, progress = progress)
+    data_tbl <- read_csv(path, col_type = col_type, progress = progress)
 
     col_names <- data_tbl %>% names %>% tolower
     col_names <- gsub("_..?", "", col_names)
