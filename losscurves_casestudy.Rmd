@@ -1,6 +1,6 @@
 ---
 title: "Modelling Loss Curves in Insurance with RStan"
-author: "Mick Cooney"
+author: "Mick Cooney <mickcooney@gmail.com>"
 date: "`r Sys.Date()`"
 output:
   html_document:
@@ -20,7 +20,7 @@ Date: `r Sys.Date()`
 
 Abstract: This case study shows a way to model the growth of losses using a hierarchical approach
 
-Keywords: loss curves, insurance,
+Keywords: loss curves, insurance, development factors, reserving
 
 -->
 
