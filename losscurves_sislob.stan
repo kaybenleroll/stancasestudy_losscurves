@@ -70,15 +70,19 @@ model {
 
 
 generated quantities {
+    vector<lower=0>[n_time] loss_sample[n_cohort];
+    vector<lower=0>[n_time] loss_prediction[n_cohort];
+    vector<lower=0>[n_time] step_ratio[n_cohort];
+
     real mu_LR_exp;
-    real<lower=0> loss_sample[n_cohort, n_time];
-    real<lower=0> loss_prediction[n_cohort, n_time];
-    real<lower=0> step_ratio[n_cohort, n_time];
 
     real<lower=0> ppc_minLR;
     real<lower=0> ppc_maxLR;
-
     real<lower=0> ppc_EFC;
+
+
+    // for (i in 1:n_cohort)
+    //     loss_sample[i] = LR[i] * premium[i] * gf[t_idx];
 
 
     for(i in 1:n_cohort) {
@@ -87,6 +91,7 @@ generated quantities {
             step_ratio [i, j] = 1.0;
         }
     }
+
 
     mu_LR_exp = exp(mu_LR);
 

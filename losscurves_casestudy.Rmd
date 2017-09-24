@@ -450,6 +450,7 @@ model_sislob_stanmodel <- stan_model(stan_file)
 ```
 
 ```{r model_sislob_stanfit, results='hide', cache=FALSE, warning=TRUE, message=FALSE}
+model_sislob_stanmodel <- stan_model(stan_file)
 model_sislob_stanfit <- sampling(
     object = model_sislob_stanmodel
    ,data   = standata_lst
