@@ -37,14 +37,15 @@ library(bayesplot)
 library(cowplot)
 
 
-options(width = 80L)
+options(width = 80L
+       ,warn  = 1
+       ,mc.cores = parallel::detectCores()
+        )
 
 rstan_options(auto_write = TRUE)
-options(mc.cores = parallel::detectCores())
 
 
 set.seed(42)
-
 stan_seed <- 42
 
 source("custom_functions.R")
@@ -1131,7 +1132,7 @@ ggplot(plot_tbl) +
 This report was created using the following packages:
 
 ```{r session_info, echo=TRUE}
-sessionInfo()
+devtools::session_info()
 ```
 
 
