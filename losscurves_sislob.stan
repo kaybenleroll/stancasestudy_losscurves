@@ -80,17 +80,11 @@ generated quantities {
     real<lower=0> ppc_maxLR;
     real<lower=0> ppc_EFC;
 
-
-    // for (i in 1:n_cohort)
-    //     loss_sample[i] = LR[i] * premium[i] * gf[t_idx];
-
-
     for(i in 1:n_cohort) {
-        for(j in 1:n_time) {
-            loss_sample[i, j] = LR[i] * premium[i] * gf[t_idx[j]];
-            step_ratio [i, j] = 1.0;
-        }
+        step_ratio[i]  = rep_vector(1, n_time);
+        loss_sample[i] = LR[i] * premium[i] * gf;
     }
+
 
 
     mu_LR_exp = exp(mu_LR);

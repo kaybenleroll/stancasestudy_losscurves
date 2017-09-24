@@ -98,96 +98,6 @@ g(t \, ; \, \theta, \omega) &= 1 - \exp\left(-\left(\frac{t}{\theta}\right)^\ome
 
 
 
-## Weibull vs Log-logistic
-
-We have no prior preference for using either the Weibull or the
-Log-logistic function to model the growth of the losses.
-
-Visuals are important in this case so we first look at how the two
-functions differ in value for a given set of parameters.
-
-```{r weibull_loglogistic_comparison_plot, echo=FALSE}
-t_seq <- seq(0, 15, by = 0.01)
-
-loglogistic_func <- function(t, om, th) 1 - exp(-(t/th)^om)
-weibull_func     <- function(t, om, th) t^om / (t^om + th^om)
-
-
-weibull_tbl <- tibble(
-    label = 'Weibull'
-   ,t = t_seq
-   ,value = weibull_func(t_seq, 1.5, 2.2)
-)
-
-loglogistic_tbl <- tibble(
-    label = 'Log-logistic'
-   ,t = t_seq
-   ,value = loglogistic_func(t_seq, 1.5, 2.2)
-)
-
-plot_tbl <- bind_rows(weibull_tbl, loglogistic_tbl)
-
-
-ggplot(plot_tbl) +
-    geom_line(aes(x = t, y = value, colour = label)) +
-    xlab(expression(t)) +
-    ylab(expression("Growth Factor for (" * omega * "=1.5, " * theta * "=2.2)"))
-```
-
-There are references that the Weibull function tends to result in
-heavier losses in the model, but we have no empirical evidence for
-such a claim. It is true that for any given set of values for
-$(\omega, \theta)$ the log-logistic function plateaus at smaller
-levels of $t$, but this seems no guarantee to me: the model could just
-choose different values for the parameters to counteract this.
-
-To test for this, let us treat the Log-logistic function as the 'true'
-value and then try to fit a new set of parameters $(\omega, \theta)$
-to see how well a different set of parameters can match another.
-
-```{r fit_new_params_gf, echo=TRUE}
-ll_vals <- loglogistic_tbl$value
-
-new_param_func <- function(x) {
-    omega <- x[1]
-    theta <- x[2]
-
-    new_vals <- weibull_func(t_seq, omega, theta)
-
-    tot_ss <- sum((new_vals - ll_vals)^2)
-
-    return(tot_ss)
-}
-
-optim_params <- optim(c(1, 1), new_param_func)
-
-
-fittedweibull_tbl <- tibble(
-    label = 'Weibull (fitted)'
-   ,t = t_seq
-   ,value = weibull_func(t_seq
-                        ,optim_params$par[1]
-                        ,optim_params$par[2])
-)
-
-
-plot_tbl <- bind_rows(weibull_tbl
-                     ,loglogistic_tbl
-                     ,fittedweibull_tbl)
-
-ggplot(plot_tbl) +
-    geom_line(aes(x = t, y = value, colour = label)) +
-    xlab(expression(t)) +
-    ylab(expression("Functional Forms for Growth/Development Factors"))
-```
-
-We see that the Weibull growth function comes quite close to a
-log-logistic function so the choice should be a matter of preference
-in the main.
-
-That said, we shall try both and see if we see much difference between
-the two.
-
 
 # Load Data
 
@@ -298,6 +208,7 @@ ggplot(snapshot_tbl) +
     expand_limits(y = 0) +
     xlab('Development Time') +
     ylab('Loss Ratio') +
+    ggtitle("Loss Ratio Curves by Development Time") +
     guides(colour = guide_legend(title = 'Cohort Year'))
 ```
 
@@ -352,6 +263,98 @@ By setting the model up in this way, Stan can fit for both the shape
 of the growth curve - as this is determined by $\theta$ and $\omega$ -
 and the loss ratios for each cohort simultaneously.
 
+## Weibull vs Log-logistic
+
+We have no prior preference for using either the Weibull or the
+Log-logistic function to model the growth of the losses.
+
+Visuals are important in this case so we first look at how the two
+functions differ in value for a given set of parameters.
+
+```{r weibull_loglogistic_comparison_plot, echo=FALSE}
+t_seq <- seq(0, 15, by = 0.01)
+
+loglogistic_func <- function(t, om, th) 1 - exp(-(t/th)^om)
+weibull_func     <- function(t, om, th) t^om / (t^om + th^om)
+
+
+weibull_tbl <- tibble(
+    label = 'Weibull'
+   ,t = t_seq
+   ,value = weibull_func(t_seq, 1.5, 2.2)
+)
+
+loglogistic_tbl <- tibble(
+    label = 'Log-logistic'
+   ,t = t_seq
+   ,value = loglogistic_func(t_seq, 1.5, 2.2)
+)
+
+plot_tbl <- bind_rows(weibull_tbl, loglogistic_tbl)
+
+
+ggplot(plot_tbl) +
+    geom_line(aes(x = t, y = value, colour = label)) +
+    xlab(expression(t)) +
+    ylab(expression("Growth Factor for (" * omega * "=1.5, " * theta * "=2.2)")) +
+    ggtitle("Sample Curves for Log-Logistic and Weibull Forms")
+```
+
+There are references that the Weibull function tends to result in
+heavier losses in the model, but we have no empirical evidence for
+such a claim. It is true that for any given set of values for
+$(\omega, \theta)$ the log-logistic function plateaus at smaller
+levels of $t$, but this seems no guarantee to me: the model could just
+choose different values for the parameters to counteract this.
+
+To test for this, let us treat the Log-logistic function as the 'true'
+value and then try to fit a new set of parameters $(\omega, \theta)$
+to see how well a different set of parameters can match another.
+
+```{r fit_new_params_gf, echo=TRUE}
+ll_vals <- loglogistic_tbl$value
+
+new_param_func <- function(x) {
+    omega <- x[1]
+    theta <- x[2]
+
+    new_vals <- weibull_func(t_seq, omega, theta)
+
+    tot_ss <- sum((new_vals - ll_vals)^2)
+
+    return(tot_ss)
+}
+
+optim_params <- optim(c(1, 1), new_param_func)
+
+
+fittedweibull_tbl <- tibble(
+    label = 'Weibull (fitted)'
+   ,t = t_seq
+   ,value = weibull_func(t_seq
+                        ,optim_params$par[1]
+                        ,optim_params$par[2])
+)
+
+
+plot_tbl <- bind_rows(weibull_tbl
+                     ,loglogistic_tbl
+                     ,fittedweibull_tbl)
+
+ggplot(plot_tbl) +
+    geom_line(aes(x = t, y = value, colour = label)) +
+    xlab(expression(t)) +
+    ylab(expression("Functional Forms for Growth/Development Factors")) +
+    ggtitle("Comparison Plot for Weibull and Log-Logistic Curves")    
+```
+
+We see that the Weibull growth function comes quite close to a
+log-logistic function so the choice should be a matter of preference
+in the main.
+
+That said, we shall try both and see if we see much difference between
+the two.
+
 
 
 ## Configure Data
@@ -373,18 +376,18 @@ cohort_maxtime <- usedata_tbl %>%
     group_by(acc_year) %>%
     summarise(maxtime = max(dev_lag)) %>%
     arrange(acc_year) %>%
-    .[['maxtime']]
+    pull(maxtime)
 
 cohort_premium <- usedata_tbl %>%
     group_by(acc_year) %>%
     summarise(premium = unique(premium)) %>%
-    .[['premium']]
+    pull(premium)
 
 t_values <- usedata_tbl %>%
     select(dev_lag) %>%
     arrange(dev_lag) %>%
     unique %>%
-    .[['dev_lag']]
+    pull(dev_lag)
 
 standata_lst <- list(
     growthmodel_id = 1   # Use weibull rather than loglogistic
@@ -450,7 +453,6 @@ model_sislob_stanmodel <- stan_model(stan_file)
 ```
 
 ```{r model_sislob_stanfit, results='hide', cache=FALSE, warning=TRUE, message=FALSE}
-model_sislob_stanmodel <- stan_model(stan_file)
 model_sislob_stanfit <- sampling(
     object = model_sislob_stanmodel
    ,data   = standata_lst
@@ -480,8 +482,9 @@ ggplot(model_sislob_monitor_tbl) +
     aes(x = parameter, y = Rhat, color = parameter) +
     geom_jitter(height = 0, width = 0.2, show.legend = FALSE) +
     geom_hline(aes(yintercept = 1), size = 0.5) +
-    theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-    ylab(expression(hat(italic(R))))
+    ylab(expression(hat(italic(R)))) +
+    ggtitle("R-hat Plots for Sampler Parameters") +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 ```
 
 The $\hat{R}$ values for the parameter appear to be in or around 1. A positive
@@ -494,9 +497,10 @@ ggplot(model_sislob_monitor_tbl) +
     aes(x = parameter, y = n_eff, color = parameter) +
     geom_jitter(height = 0, width = 0.1, show.legend = FALSE) +
     expand_limits(y = 0) +
-    theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
     xlab("Parameter") +
-    ylab(paste0("Effective Sample Count (n_eff)"))
+    ylab(paste0("Effective Sample Count (n_eff)")) +
+    ggtitle("N_eff Plots for Sampler Parameters") +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 ```
 
 The lowest sample size for the parameters is around 800, about 40% of the/
@@ -508,6 +512,7 @@ count makes the plots messy, so we break them up into groups. First we look at
 
 ```{r model_sislob_traceplot1, echo=TRUE}
 traceplot(model_sislob_stanfit, pars = c("omega", "theta", "LR")) +
+    ggtitle("Traceplot of omega, theta and LR") +
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 ```
 
@@ -518,6 +523,7 @@ Now we look at the traces for `gf` and `loss_sd`.
 
 ```{r model_sislob_traceplot2, echo=TRUE}
 traceplot(model_sislob_stanfit, pars = c("gf", "loss_sd")) +
+    ggtitle("Traceplot of gf and loss_sd") +
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 ```
 
@@ -559,7 +565,8 @@ and we look at `omega` and `theta` first.
 ```{r model_sislob_bayesplot_acf_omegatheta, echo=TRUE}
 model_sislob_stanfit %>%
     extract(inc_warmup = FALSE, permuted = FALSE) %>%
-    mcmc_acf(pars = c('omega','theta'))
+    mcmc_acf(pars = c('omega','theta')) +
+    ggtitle("ACF Plots for omega and theta")
 ```
 
 We see the autocorrelation damps down to zero after a few lags.
@@ -568,7 +575,9 @@ We will not look at all the loss ratio parameters as there are too many, so we
 restrict our plots to `mu_LR` and `LR[3]`
 
 ```{r model_sislob_bayesplot_acf_LR, echo=TRUE, fig.height=14}
-model_sislob_draws %>% mcmc_acf(pars = c('mu_LR','LR[3]'))
+model_sislob_draws %>%
+    mcmc_acf(pars = c('mu_LR','LR[3]')) +
+        ggtitle("ACF Plots for mu_LR and LR[3]")
 ```
 
 These parameters possess more autocorrelation, taking longer to decay to zero.
@@ -586,7 +595,8 @@ exploring the posterior probability space.
 model_sislob_stanfit %>%
     nuts_params %>%
     mcmc_nuts_energy(binwidth = 1) +
-        facet_wrap(~Chain, ncol = 2)
+        facet_wrap(~Chain, ncol = 2) +
+        ggtitle("Energy Diagnostic Plots Across Chains")
 ```
 
 Once again, the diagnostics are not flagging any potential issues with the
@@ -598,7 +608,8 @@ indications of a lack of mixing.
 ```{r model_sislob_grcode353_bayesplot_traces, echo=TRUE}
 model_sislob_stanfit %>%
     as.matrix %>%
-    mcmc_trace(regex_pars = c('theta','omega','LR\\[','mu_LR','sd_LR','loss_sd'))
+    mcmc_trace(regex_pars = c('theta','omega','LR\\[','mu_LR','sd_LR','loss_sd')) +
+        ggtitle("Parameter Traceplots")
 ```
 
 These plots are similar to the traceplots from before, and show no causes for
@@ -616,7 +627,7 @@ param_root <- c("omega", "theta", "LR", "mu_LR_exp", "gf", "loss_sd")
 
 use_vars <- model_sislob_monitor_tbl %>%
     filter(parameter %in% param_root) %>%
-    .[["variable"]]
+    pull(variable)
 
 plotdata_tbl <- model_sislob_monitor_tbl %>%
     filter(variable %in% use_vars) %>%
@@ -629,7 +640,7 @@ ggplot(plotdata_tbl) +
     expand_limits(y = 0) +
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
     xlab("Parameter") +
-    ylab("Value")
+    ggtitle("Posterior Credibility Intervals for Sampler Parameters")
 ```
 
 The `bayesplot` package also provides some functionality for plotting the
@@ -639,9 +650,10 @@ parameters values.
 weibull_param_plot <- model_sislob_stanfit %>%
     extract(inc_warmup = FALSE, permuted = FALSE) %>%
     mcmc_intervals(regex_pars = c('omega','theta','LR\\[', 'mu_LR','sd_LR','loss_sd')) +
-        expand_limits(x = c(-0.5, 2.5))
+        expand_limits(x = c(-0.5, 2.5)) +
+        ggtitle("Posterior Credibility Intervals for Sampler Parameters")
 
-plot(weibull_param_plot)
+weibull_param_plot %>% plot
 ```
 
 Now that we have our fit we can start looking at some plots for
@@ -663,9 +675,9 @@ ggplot(snapshot_tbl %>% filter(acc_year == 1988)) +
     geom_point(aes(x = dev_lag, y = cum_loss), colour = 'blue') +
     expand_limits(y = 0) +
     scale_y_continuous(labels = dollar) +
-    ggtitle("Plot of 1988 Year Loss Development Against Posterior Distribution") +
     xlab("Time") +
-    ylab("Loss")
+    ylab("Loss") +
+    ggtitle("Plot of 1988 Year Loss Development Against Posterior Distribution")
 ```
 
 The fit seems reasonable.
@@ -704,11 +716,11 @@ plot_predict <- ggplot(carrier_full_tbl %>% filter(grcode == 43, acc_year == '19
     geom_point(aes(x = dev_lag, y = cum_loss), colour = 'blue') +
     expand_limits(y = 0) +
     scale_y_continuous(labels = dollar) +
-    ggtitle("Plot of 1993 Year Loss Prediction") +
     xlab("Time") +
-    ylab("Loss")
+    ylab("Loss") +
+    ggtitle("Plot of 1993 Year Loss Prediction")
 
-plot(plot_predict)
+plot_predict %>% plot
 ```
 
 We now look at a later year with less claim development, 1995. We have three
@@ -729,11 +741,11 @@ plot_predict <- ggplot(carrier_full_tbl %>% filter(grcode == 43, acc_year == '19
     geom_point(aes(x = dev_lag, y = cum_loss), colour = 'blue') +
     expand_limits(y = 0) +
     scale_y_continuous(labels = dollar) +
-    ggtitle("Plot of 1995 Year Loss Prediction") +
     xlab("Time") +
-    ylab("Loss")
+    ylab("Loss") +
+    ggtitle("Plot of 1995 Year Loss Prediction")
 
-plot(plot_predict)
+plot_predict %>% plot
 ```
 
 Note that in the above plots, we compare the observed data against estimates
@@ -784,17 +796,18 @@ lr_tbl <- carrier_full_tbl %>%
              ,max_lr = max(loss_ratio))
 
 min_plot <- ggplot() +
-    geom_density(aes(x = ppc_min_lr)) +
+    geom_line(aes(x = ppc_min_lr), stat = 'density') +
     geom_vline(aes(xintercept = lr_tbl$min_lr), colour = 'red') +
     xlab("Minimum Loss Ratio") +
-    ylab("Probability Density")
+    ylab("Probability Density") +
+    ggtitle("Min Loss Ratio")
 
 max_plot <- ggplot() +
-    geom_density(aes(x = ppc_max_lr)) +
+    geom_line(aes(x = ppc_max_lr), stat = 'density') +
     geom_vline(aes(xintercept = lr_tbl$max_lr), colour = 'red') +
     xlab("Maximum Loss Ratio") +
-    ylab("Probability Density")
-
+    ylab("Probability Density") +
+    ggtitle("Max Loss Ratio")
 
 plot_grid(min_plot, max_plot, nrow = 2)
 ```
@@ -842,25 +855,26 @@ tckc <- carrier_snapshot_tbl %>%
     filter(grcode == use_grcode[1]) %>%
     group_by(acc_year) %>%
     filter(dev_lag == max(dev_lag)) %>%
-    .[["cum_loss"]] %>%
+    pull(cum_loss) %>%
     sum
 
 afc <- carrier_full_tbl %>%
     filter(grcode == use_grcode[1]) %>%
     group_by(acc_year) %>%
     filter(dev_lag == max(dev_lag)) %>%
-    .[["cum_loss"]] %>%
+    pull(cum_loss) %>%
     sum
 
 future_claims <- afc - tckc
 
 
 ggplot() +
-    geom_density(aes(x = extract(model_sislob_stanfit)$ppc_EFC)) +
+    geom_line(aes(x = extract(model_sislob_stanfit)$ppc_EFC), stat = 'density') +
     geom_vline(aes(xintercept = future_claims), colour = 'red') +
     scale_x_continuous(labels = dollar) +
     xlab("Future Claims ('000s)") +
-    ylab("Probability Density")
+    ylab("Probability Density") +
+    ggtitle("Forecasted Reserves for All Claims")
 ```
 
 
@@ -901,8 +915,8 @@ loglogistic_param_plot <- model_sislob_ll_stanfit %>%
     mcmc_intervals(., regex_pars = c('omega','theta','LR\\[', 'mu_LR','sd_LR','loss_sd')) +
         expand_limits(x = c(-0.5, 2.5))
 
-plot_grid(weibull_param_plot
-         ,loglogistic_param_plot
+plot_grid(weibull_param_plot     + ggtitle("Weibull")
+         ,loglogistic_param_plot + ggtitle("Log-logistic")
          ,nrow = 2)
 ```
 
@@ -922,25 +936,26 @@ tckc <- carrier_snapshot_tbl %>%
     filter(grcode == use_grcode[1]) %>%
     group_by(acc_year) %>%
     filter(dev_lag == max(dev_lag)) %>%
-    .[["cum_loss"]] %>%
+    pull(cum_loss) %>%
     sum
 
 afc <- carrier_full_tbl %>%
     filter(grcode == use_grcode[1]) %>%
     group_by(acc_year) %>%
     filter(dev_lag == max(dev_lag)) %>%
-    .[["cum_loss"]] %>%
+    pull(cum_loss) %>%
     sum
 
 future_claims <- afc - tckc
 
 
 ggplot() +
-    geom_density(aes(x = extract(model_sislob_ll_stanfit)$ppc_EFC)) +
+    geom_line(aes(x = extract(model_sislob_ll_stanfit)$ppc_EFC), stat = 'density') +
     geom_vline(aes(xintercept = future_claims), colour = 'red') +
     scale_x_continuous(labels = dollar) +
     xlab("Future Claims ('000s)") +
-    ylab("Probability Density")
+    ylab("Probability Density") +
+    ggtitle("Forecasted Reserves for All Years")
 ```
 
 Finally, we compare the two models simultaneously.
@@ -955,11 +970,11 @@ plot_tbl <- bind_rows(
 
 ggplot(plot_tbl) +
     geom_vline(aes(xintercept = future_claims)) +
-    geom_density(aes(x = values, colour = label)) +
-    geom_density(aes(x = values, colour = label)) +
+    geom_line(aes(x = values, colour = label), stat = 'density') +
     scale_x_continuous(labels = dollar) +
     xlab("Future Claims ('000s)") +
-    ylab("Probability Density")
+    ylab("Probability Density") +
+    ggtitle("Forecasted Reserves for All Years")
 ```
 
 
@@ -1032,8 +1047,8 @@ gr353_wb_param_plot <- model_sislob_grcode353_wb_stanfit %>%
     mcmc_intervals(., regex_pars = c('omega','theta','LR\\[', 'mu_LR','sd_LR','loss_sd')) +
         expand_limits(x = c(-0.5, 2.5))
 
-plot_grid(weibull_param_plot
-         ,gr353_wb_param_plot
+plot_grid(weibull_param_plot  + ggtitle("GRCODE 43")
+         ,gr353_wb_param_plot + ggtitle("GRCODE 353")
          ,nrow = 2)
 ```
 
@@ -1048,24 +1063,25 @@ patterns as before.
 tckc <- grcode353_snapshot_tbl %>%
     group_by(acc_year) %>%
     filter(dev_lag == max(dev_lag)) %>%
-    .[["cum_loss"]] %>%
+    pull(cum_loss) %>%
     sum
 
 afc <- grcode353_tbl %>%
     group_by(acc_year) %>%
     filter(dev_lag == max(dev_lag)) %>%
-    .[["cum_loss"]] %>%
+    pull(cum_loss) %>%
     sum
 
 future_claims <- afc - tckc
 
 
 ggplot() +
-    geom_density(aes(x = extract(model_sislob_grcode353_wb_stanfit)$ppc_EFC)) +
+    geom_line(aes(x = extract(model_sislob_grcode353_wb_stanfit)$ppc_EFC), stat = 'density') +
     geom_vline(aes(xintercept = future_claims), colour = 'red') +
     scale_x_continuous(labels = dollar) +
     xlab("Future Claims ('000s)") +
-    ylab("Probability Density")
+    ylab("Probability Density") +
+    ggtitle("Forecasted Reserves for All Years")
 ```
 
 
@@ -1088,24 +1104,25 @@ model_sislob_grcode353_ll_stanfit <- model_sislob_grcode353_ll_list$stanfit
 tckc <- grcode353_snapshot_tbl %>%
     group_by(acc_year) %>%
     filter(dev_lag == max(dev_lag)) %>%
-    .[["cum_loss"]] %>%
+    pull(cum_loss) %>%
     sum
 
 afc <- grcode353_tbl %>%
     group_by(acc_year) %>%
     filter(dev_lag == max(dev_lag)) %>%
-    .[["cum_loss"]] %>%
+    pull(cum_loss) %>%
     sum
 
 future_claims <- afc - tckc
 
 
 ggplot() +
-    geom_density(aes(x = extract(model_sislob_grcode353_ll_stanfit)$ppc_EFC)) +
+    geom_line(aes(x = extract(model_sislob_grcode353_ll_stanfit)$ppc_EFC), stat = 'density') +
     geom_vline(aes(xintercept = future_claims), colour = 'red') +
     scale_x_continuous(labels = dollar) +
     xlab("Future Claims ('000s)") +
-    ylab("Probability Density")
+    ylab("Probability Density") +
+    ggtitle("Forecasted Reserves for All Years")
 ```
 
 
@@ -1119,12 +1136,13 @@ plot_tbl <- bind_rows(
 
 ggplot(plot_tbl) +
     geom_vline(aes(xintercept = future_claims)) +
-    geom_density(aes(x = values, colour = label)) +
-    geom_density(aes(x = values, colour = label)) +
+    geom_line(aes(x = values, colour = label), stat = 'density') +
     scale_x_continuous(labels = dollar) +
     xlab("Future Claims ('000s)") +
-    ylab("Probability Density")
+    ylab("Probability Density") +
+    ggtitle("Comparison Plot for Weibull vs Loglogistic Reserves")
 ```
+
 
 
 
