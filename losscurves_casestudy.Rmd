@@ -498,7 +498,7 @@ ggplot(model_sislob_monitor_tbl) +
     ylab(paste0("Effective Sample Count (n_eff)"))
 ```
 
-The lowest sample size for the parameters is around 800, about 40% of the
+The lowest sample size for the parameters is around 800, about 40% of the/
 maximum. This is reasonable, though the higher is better.
 
 Traceplots for the parameters are a useful diagnostic. The large parameter

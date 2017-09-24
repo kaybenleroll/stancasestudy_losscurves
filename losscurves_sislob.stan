@@ -21,17 +21,17 @@ data {
 
     int cohort_maxtime[n_cohort];
 
-    real<lower=0> t_value[n_time];
+    vector<lower=0>[n_time] t_value;
 
-    real premium[n_cohort];
-    real loss[n_data];
+    vector[n_cohort] premium;
+    vector[n_data]   loss;
 }
 
 parameters {
     real<lower=0> omega;
     real<lower=0> theta;
 
-    real<lower=0> LR[n_cohort];
+    vector<lower=0>[n_cohort] LR;
 
     real mu_LR;
     real<lower=0> sd_LR;
@@ -40,8 +40,8 @@ parameters {
 }
 
 transformed parameters {
-    real gf[n_time];
-    real loss_mean[n_cohort, n_time];
+    vector[n_time] gf;
+    vector[n_data] lm;
 
     for(i in 1:n_time) {
         gf[i] = growthmodel_id == 1 ?
@@ -49,14 +49,8 @@ transformed parameters {
             growth_factor_loglogistic(t_value[i], omega, theta);
     }
 
-    for(i in 1:n_cohort) {
-        for(j in 1:n_time) {
-            loss_mean[i,j] = 0;
-        }
-    }
-
-    for(i in 1:n_data) {
-        loss_mean[cohort_id[i], t_idx[i]] = LR[cohort_id[i]] * premium[cohort_id[i]] * gf[t_idx[i]];
+    for (i in 1:n_data) {
+        lm[i] = LR[cohort_id[i]] * premium[cohort_id[i]] * gf[t_idx[i]];
     }
 }
 
@@ -71,9 +65,7 @@ model {
     omega ~ lognormal(0, 0.5);
     theta ~ lognormal(0, 0.5);
 
-    for(i in 1:n_data) {
-        loss[i] ~ normal(loss_mean[cohort_id[i], t_idx[i]], premium[cohort_id[i]] * loss_sd);
-    }
+    loss ~ normal(lm, (loss_sd * premium)[cohort_id]);
 }
 
 
