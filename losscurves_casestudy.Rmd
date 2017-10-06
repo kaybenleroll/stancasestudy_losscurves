@@ -43,7 +43,7 @@ options(width = 80L
         )
 
 rstan_options(auto_write = TRUE)
-
+theme_set(theme_cowplot())
 
 set.seed(42)
 stan_seed <- 42
@@ -64,13 +64,21 @@ for a given accounting period are tracked seperately over time. This
 enables the use of historical patterns of claim development to predict
 expected total claims for newer policies.
 
+In insurance, depending on the types of risks, it can take many years for an
+insurer to learn the amount of liability incurred on policies written during
+any particular year. So, at a particular point in time after the policy is
+written some claims may not reported or known about by then, or some claims are
+still working through the legal system so the final amount due is not
+determined.
+
 Total claim amounts from a simple accounting period are laid
 out in a single row of a table, each column showing the total claim amount
 after that period of time. Subsequent accounting periods have less
 development, so the data takes a triangular shape - hence the term
 'loss triangles'. Using previous patterns, data in the upper part of
 the triangle is used to predict values in the unknown lower
-triangle.
+triangle, giving the insurer a probabilistic forecast of the ultimate claim
+amounts to be paid for all business written.
 
 The `ChainLadder` package provides functionality to generate and use
 these loss triangles.
@@ -187,7 +195,26 @@ snapshot_tbl %>%
     print
 ```
 
-We also look at the loss ratios in a similar fashion
+In the above 'triangle', we see the cumulative amounts of 'incurred losses'
+for each accounting year. 1988 was the first year and so has ten years of
+claims development by 1998. Similarily, 1989 has nine years of development and
+so on. Incurred claims come in two forms: closed claims that the insurer has
+paid out and will have no further changes, or open claims known to the insurer
+but not fully settled and paid out yet.
+
+As claims develop, we see that the total claims is an
+approximately-monotonically increasing function of time, providing the
+motivation to model this pattern as a growth curve.
+
+The `premium` column details the total premium received by the insurer for the
+policies written in that accounting year. Recall that the ratio of total claims
+paid to total premium received is the 'Loss Ratio' (LR).
+
+For this insurer we see that the premium collected in each account year
+increases significantly over time, suggesting that the size of this line of
+business grew as time went on.
+
+Next, we look at loss ratios in a similar fashion:
 
 ```{r create_chainladder_lossratios, echo=TRUE}
 snapshot_tbl %>%
@@ -559,30 +586,6 @@ model_sislob_stanfit %>%
 
 The lowest sample size is just under 50% of the full count, which is good.
 
-`bayesplot` provides functionality to plot the autocorrelation in parameters,
-and we look at `omega` and `theta` first.
-
-```{r model_sislob_bayesplot_acf_omegatheta, echo=TRUE}
-model_sislob_stanfit %>%
-    extract(inc_warmup = FALSE, permuted = FALSE) %>%
-    mcmc_acf(pars = c('omega','theta')) +
-    ggtitle("ACF Plots for omega and theta")
-```
-
-We see the autocorrelation damps down to zero after a few lags.
-
-We will not look at all the loss ratio parameters as there are too many, so we
-restrict our plots to `mu_LR` and `LR[3]`
-
-```{r model_sislob_bayesplot_acf_LR, echo=TRUE, fig.height=14}
-model_sislob_draws %>%
-    mcmc_acf(pars = c('mu_LR','LR[3]')) +
-        ggtitle("ACF Plots for mu_LR and LR[3]")
-```
-
-These parameters possess more autocorrelation, taking longer to decay to zero.
-This is consistent with the $n_{text{eff}}$ plots, as these parameters have
-lower effective sample size.
 
 A major benefit of using Hamiltonian Monte Carlo and the NUTS sampler is the
 presence of powerful diagnostic tools for convergence. One useful plot is the
@@ -599,8 +602,7 @@ model_sislob_stanfit %>%
         ggtitle("Energy Diagnostic Plots Across Chains")
 ```
 
-Once again, the diagnostics are not flagging any potential issues with the
-sample.
+The diagnostics are not flagging any potential issues with the sample.
 
 Finally we check the parameter traceplots for convergence, looking for
 indications of a lack of mixing.
