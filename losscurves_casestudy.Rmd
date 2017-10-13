@@ -27,6 +27,8 @@ Keywords: loss curves, insurance, development factors, reserving
 ```{r knit_opts, include = FALSE}
 knitr::opts_chunk$set(tidy  = FALSE
                      ,cache = FALSE
+                     ,message = FALSE
+                     ,warning = FALSE
                      ,fig.height =  8
                      ,fig.width  = 11)
 
@@ -111,7 +113,7 @@ g(t \, ; \, \theta, \omega) &= 1 - \exp\left(-\left(\frac{t}{\theta}\right)^\ome
 
 We load the Schedule P loss data from casact.org.
 
-```{r load_data, echo=TRUE, message=FALSE}
+```{r load_data, echo=TRUE}
 ### File was downloaded from http://www.casact.org/research/reserve_data/ppauto_pos.csv
 data_files <- dir("data/", pattern = "\\.csv", full.names = TRUE)
 
@@ -475,11 +477,11 @@ discussed in a later section.
 
 We now proceed with fitting the stan model and examing the output.
 
-```{r model_sislob_stanmodel, cache=FALSE, warning=TRUE, message=FALSE, results='hide'}
+```{r model_sislob_stanmodel, cache=FALSE, warning=TRUE, results='hide'}
 model_sislob_stanmodel <- stan_model(stan_file)
 ```
 
-```{r model_sislob_stanfit, results='hide', cache=FALSE, warning=TRUE, message=FALSE}
+```{r model_sislob_stanfit, results='hide', cache=FALSE, warning=TRUE}
 model_sislob_stanfit <- sampling(
     object = model_sislob_stanmodel
    ,data   = standata_lst
@@ -895,7 +897,7 @@ the growth factors instead.
 The code is broadly similar, and we have wrapped the code into a single
 function which takes the input data and creates the fit.
 
-```{r model_loglogistic, echo=TRUE, results='hide', warning=TRUE, message=FALSE}
+```{r model_loglogistic, echo=TRUE, results='hide', warning=TRUE}
 model_sislob_ll_list <- create_stanfit(model_sislob_stanmodel, usedata_tbl
                                       ,model_id = 0, stan_seed = stan_seed)
 
@@ -1028,7 +1030,7 @@ ggplot(grcode353_snapshot_tbl) +
 
 Now that we have the data, we fit the model using the GRCODE 353.
 
-```{r model_sislob_grcode353_wb_fit, echo=TRUE, results='hide', warning=TRUE, message=FALSE}
+```{r model_sislob_grcode353_wb_fit, echo=TRUE, results='hide', warning=TRUE}
 model_sislob_grcode353_wb_list <- create_stanfit(model_sislob_stanmodel
                                                 ,grcode353_snapshot_tbl
                                                 ,model_id = 1
@@ -1092,7 +1094,7 @@ ggplot() +
 
 We fit the model using the GRCODE 353 data and the loglogistic growth functional form.
 
-```{r model_sislob_grcode353_ll_fit, echo=TRUE, results='hide', warning=TRUE, message=FALSE}
+```{r model_sislob_grcode353_ll_fit, echo=TRUE, results='hide', warning=TRUE}
 model_sislob_grcode353_ll_list <- create_stanfit(model_sislob_stanmodel
                                                 ,grcode353_snapshot_tbl
                                                 ,model_id  = 0
@@ -1163,3 +1165,12 @@ devtools::session_info()
   
 * Guszcza, J. C. (2008) Hierarchical Growth Curve Models for Loss Reserving
   _CAS Forum 2008: Fall_, [pdf](https://www.casact.org/pubs/forum/08fforum/7Guszcza.pdf)
+  
+  
+  
+  
+## License
+
+The code and text are copyrighted by Michael Cooney and licensed under
+[BSD (3-clause)](https://opensource.org/licenses/BSD-3-Clause) and the text is
+licensed under [CC-BY NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/).
