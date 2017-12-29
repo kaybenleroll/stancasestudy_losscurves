@@ -22,7 +22,7 @@ Abstract: This case study shows a way to model the growth of losses using a hier
 
 Keywords: loss curves, insurance, development factors, reserving
 
--->
+-->model_sislob_stanmodel <- stan_model(stan_file)
 
 ```{r knit_opts, include = FALSE}
 knitr::opts_chunk$set(tidy  = FALSE
@@ -1166,6 +1166,12 @@ devtools::session_info()
 * Guszcza, J. C. (2008) Hierarchical Growth Curve Models for Loss Reserving
   _CAS Forum 2008: Fall_, [pdf](https://www.casact.org/pubs/forum/08fforum/7Guszcza.pdf)
   
+* Meyers, G. (2015) Stochastic Loss Reserving Using Bayesian MCMC Models.
+  _Issue 1 of CAS Monograph Series_. [pdf](http://www.casact.org/pubs/monographs/papers/01-Meyers.PDF)
+
+* Gesmann, M. (2015) Hierarchical Loss Reserving with Stan.
+  _magesblog_ [html](https://magesblog.com/post/2015-11-10-hierarchical-loss-reserving-with-stan/)
+
   
   
   
