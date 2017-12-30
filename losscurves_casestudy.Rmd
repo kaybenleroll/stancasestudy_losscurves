@@ -11,19 +11,6 @@ output:
   pdf_document: default
 ---
 
-<!--
-(Title:) Modelling Loss Curves in Insurance with RStan
-
-Author: Mick Cooney
-
-Date: `r Sys.Date()`
-
-Abstract: This case study shows a way to model the growth of losses using a hierarchical approach
-
-Keywords: loss curves, insurance, development factors, reserving
-
--->model_sislob_stanmodel <- stan_model(stan_file)
-
 ```{r knit_opts, include = FALSE}
 knitr::opts_chunk$set(tidy  = FALSE
                      ,cache = FALSE
