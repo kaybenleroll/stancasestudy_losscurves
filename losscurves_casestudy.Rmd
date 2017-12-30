@@ -1141,7 +1141,7 @@ ggplot(plot_tbl) +
 
 This report was created using the following packages:
 
-```{r session_info, echo=TRUE}
+```{r session_info, echo=TRUE, message=TRUE}
 devtools::session_info()
 ```
 
