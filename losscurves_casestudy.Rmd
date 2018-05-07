@@ -869,7 +869,7 @@ ggplot() +
 ```
 
 
-# Altenative Models
+# Alternative Models
 
 With the basic model built and validated, we now want to explore alternatives.
 We want to look at different functional forms for the development patterns and
